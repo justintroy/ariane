@@ -27,7 +27,7 @@ def harness_source():
     # Compile the exact production transport functions, with only engine globals
     # and the game-command dispatcher replaced by a ping/large-reply fixture.
     includes = source[:source.index('static const int AGENT_PROTOCOL_VERSION')]
-    includes = includes.replace('#include "euryopa.h"', '').replace('#include "agentbridge.h"', '')
+    includes = includes.replace('#include "euryopa.h"', '').replace('#include "agentbridge.h"', '').replace('#include "samp_editor.h"', '').replace('#include "samp_document.h"', '')
     globals_ = source[source.index('#ifdef _WIN32\ntypedef SOCKET'):source.index('struct AgentSceneSnapshot')]
     escape = source[source.index('static std::string\njsonEscape'):source.index('static AgentCameraPose\n')]
     transport = source[source.index('static void\nwriteResponse'):source.index('static void\ninitializeBridge')]

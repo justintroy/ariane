@@ -1,4 +1,5 @@
 #include "euryopa.h"
+#include "samp_editor.h"
 #include "modloader.h"
 #include <algorithm>
 #include <ctime>
@@ -1876,6 +1877,9 @@ private:
 BinaryIplSaveResult
 SaveScene(const char *filename)
 {
+	if(SampActive() || (filename && strstr(filename, "samp_runtime"))){
+		BinaryIplSaveResult blocked = {}; blocked.numFailedFiles=1; return blocked;
+	}
 	CPtrNode *p;
 	ObjectInst *inst;
 	BinaryIplSaveResult result = {};

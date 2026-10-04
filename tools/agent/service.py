@@ -1272,6 +1272,11 @@ class ArianeService:
 			"camera": self.engine("camera_context")["camera"],
 			"objects": objects,
 		}
+		if "samp" in self.engine("capabilities").get("commands", []):
+			samp_state = self.samp("inspect", include_snapshot=True)
+			manifest["samp"] = samp_state["document"]
+			manifest["samp_snapshot"] = samp_state["snapshot"]
+			manifest["samp_active"] = samp_state.get("active", True)
 		manifest["project"] = self.vibe.project()
 		if session.get("active"):
 			state, _, _ = self._load_composition()
@@ -1290,11 +1295,12 @@ class ArianeService:
 			if candidate.get("schema") != CHECKPOINT_SCHEMA or candidate.get("layer_uuid") != layer_uuid:
 				raise ValueError("checkpoint verification failed")
 			os.replace(temporary, target)
-			directory_fd = os.open(self.checkpoint_dir, os.O_RDONLY)
-			try:
-				os.fsync(directory_fd)
-			finally:
-				os.close(directory_fd)
+			if os.name != "nt":
+				directory_fd = os.open(self.checkpoint_dir, os.O_RDONLY)
+				try:
+					os.fsync(directory_fd)
+				finally:
+					os.close(directory_fd)
 		finally:
 			temporary.unlink(missing_ok=True)
 		return {"checkpoint": name, "path": str(target), "object_count": len(objects)}
@@ -1314,7 +1320,16 @@ class ArianeService:
 		for item in manifest["objects"]:
 			if not self.probe_asset(int(item["model_id"]), ensure_renderable=True).get("renderable"):
 				raise ValueError(f"checkpoint model unavailable: {item['model_id']}")
-		self.engine("clear")
+		live_objects = self.enumerate_scene()
+		samp_supported = "samp" in self.engine("capabilities").get("commands", [])
+		if (live_objects or manifest["objects"]) and samp_supported and self.samp("inspect").get("active"):
+			raise RuntimeError("deactivate SA-MP editing before restoring a checkpoint with generic scene objects")
+		if "samp_snapshot" in manifest:
+			self.samp("replace", snapshot=manifest["samp_snapshot"], validate_only=True)
+		elif "samp" in manifest:
+			self.samp("replace", document=manifest["samp"], label="Validate checkpoint", validate_only=True)
+		if live_objects or manifest["objects"]:
+			self.engine("clear")
 		mapping = []
 		for item in manifest["objects"]:
 			position = item["position"]
@@ -1333,6 +1348,10 @@ class ArianeService:
 		self._save_composition(self._composition_path(session), state)
 		if "project" in manifest:
 			self.vibe.update_project({k: v for k, v in manifest["project"].items() if k not in {"revision", "schema"}})
+		if "samp_snapshot" in manifest:
+			self.samp("replace", snapshot=manifest["samp_snapshot"], active=manifest.get("samp_active", True))
+		elif "samp" in manifest:
+			self.samp("replace", document=manifest["samp"], label="Restore checkpoint")
 		return {"checkpoint": name, "restored_count": len(mapping), "objects": mapping}
 
 	def validate_semantic_zones(self, zones: list[dict], objects: list[dict] | None = None) -> dict:
@@ -1396,8 +1415,14 @@ class ArianeService:
 			if offset is None: break
 		return self.engine("suppress_world_models", [x, y, radius, *model_ids])
 
+	def samp(self, operation: str, **params) -> dict:
+		"""Use the same engine-owned document service as the SA-MP window."""
+		return self.engine("samp", [json.dumps({**params, "op": operation})])["samp"]
+
 	def dispatch(self, method: str, params: dict | None = None) -> Any:
 		params = params or {}
+		if method.startswith("samp."):
+			return self.samp(method[5:], **params)
 		if method.startswith("vibe."):
 			return self.vibe.dispatch(method[5:], params)
 		if method.startswith("rig."):

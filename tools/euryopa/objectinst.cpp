@@ -1,4 +1,5 @@
 #include "euryopa.h"
+#include "samp_editor.h"
 #include "lod_associations.h"
 #include "modloader.h"
 #include "object_categories.h"
@@ -804,7 +805,7 @@ countLiveLodChildren(ObjectInst *lodInst, ObjectInst *ignoreInst)
 void
 ObjectInst::UpdateMatrix(void)
 {
-	if(isSA() && std::fabs(m_rotation.x) <= 0.05f && std::fabs(m_rotation.y) <= 0.05f){
+	if(!SampOwns(this) && isSA() && std::fabs(m_rotation.x) <= 0.05f && std::fabs(m_rotation.y) <= 0.05f){
 		// Match SA's IPL loader: quaternions with tiny X/Y components are treated
 		// as heading-only instead of full 3D rotations.
 		float w = m_rotation.w;
@@ -825,9 +826,31 @@ ObjectInst::UpdateMatrix(void)
 	m_matrix.translate(&m_translation, rw::COMBINEPOSTCONCAT);
 }
 
+void
+ObjectInst::DestroyRwObject(void)
+{
+	if(SampOwns(this)) SampInvalidateMaterials(this);
+	delete GetObjectAnimState(this);
+	m_animState = nil;
+	m_animTime = 0.0f;
+	if(m_rwObject == nil) return;
+	// Inspect the actual RW type, before a caller replaces the model ID.
+	auto object = (rw::Object*)m_rwObject;
+	if(object->type == rw::Atomic::ID){
+		auto atomic = (rw::Atomic*)m_rwObject;
+		auto frame = atomic->getFrame();
+		atomic->destroy();
+		if(frame) frame->destroy();
+	}else if(object->type == rw::Clump::ID){
+		((rw::Clump*)m_rwObject)->destroy();
+	}
+	m_rwObject = nil;
+}
+
 void*
 ObjectInst::CreateRwObject(void)
 {
+	if(SampOwns(this)) SampInvalidateMaterials(this);
 	rw::Frame *f;
 	rw::Atomic *atomic;
 	rw::Clump *clump;
@@ -970,7 +993,7 @@ ObjectInst::JumpTo(void)
 void
 ObjectInst::Select(void)
 {
-	if(!IsInstInIplMapDocument(this)){
+	if(!IsInstInIplMapDocument(this) && !SampActive()){
 		// Direct clicks and rectangle/list selection all converge here. Rate-limit
 		// the explanation so a drag across many reference objects yields one toast.
 		static double lastLockedReferenceToast = -100.0;
@@ -1076,7 +1099,7 @@ setDeletedWithoutCascade(ObjectInst *inst, bool deleted)
 		inst->m_isDirty = true;
 }
 
-void
+int
 DeleteSelected(void)
 {
 	// Collect all instances that will be deleted (including LOD cascades)
@@ -1095,9 +1118,16 @@ DeleteSelected(void)
 			toDelete.push_back(inst);
 		}
 	}
-	if(toDelete.empty()) return;
+	if(toDelete.empty()) return 0;
 	if(capped)
 		Toast(TOAST_DELETE, "Delete limited to first %d selected instance(s)", MAX_BATCH_OBJECTS);
+	if(SampActive()){
+		int deleted = SampDelete(toDelete);
+		if(deleted == 0 && !toDelete.empty())
+			Toast(TOAST_DELETE, "Cannot delete vanilla world objects while SA-MP editing is active");
+		return deleted;
+
+	}
 
 	// Record the exact transition set. Undo must not recursively undelete an HD
 	// child that was already deleted before this action and shares the same LOD.
@@ -1116,6 +1146,7 @@ DeleteSelected(void)
 		if(previouslyLive[i]->m_isDeleted)
 			newlyDeleted.push_back(previouslyLive[i]);
 	UndoRecordDelete(newlyDeleted.data(), (int)newlyDeleted.size());
+	return (int)newlyDeleted.size();
 }
 
 int
@@ -1332,6 +1363,13 @@ createSpawnedInstance(int objectId, rw::V3d position, GameFile *file, int iplInd
 	return inst;
 }
 
+ObjectInst *SampCreateInstance(int model, float x, float y, float z)
+{
+    static char name[] = "ariane\\samp_runtime.ipl";
+    static GameFile file = { name, nullptr };
+    return createSpawnedInstance(model, {x,y,z}, &file, 0);
+}
+
 static void
 finalizeLinkedLod(ObjectInst *hdInst, ObjectInst *lodInst)
 {
@@ -1365,6 +1403,12 @@ SpawnPlaceObjectNoUndo(rw::V3d position, const rw::Quat *orientation,
 	ObjectInst **outInsts, int outCapacity)
 {
 	if(spawnObjectId < 0) return 0;
+    if(SampActive()) {
+        if(!outInsts || outCapacity<1) return 0;
+        auto instance=SampPlace(spawnObjectId,position,orientation);
+        if(!instance) return 0;
+        instance->Select(); outInsts[0]=instance; return 1;
+    }
 	ObjectDef *obj = GetObjectDef(spawnObjectId);
 	if(obj == nil) return 0;
 	if(outInsts == nil || outCapacity <= 0) return 0;
@@ -2511,6 +2555,7 @@ pushUndo(UndoAction *a)
 void
 UndoRecordMove(ObjectInst *inst, rw::V3d oldPos, ObjectInst *lodInst, rw::V3d lodOldPos)
 {
+	if(SampActive() || (inst && SampOwns(inst))) return;
 	UndoAction a = {};
 	a.type = UNDO_MOVE;
 	a.inst = inst;
@@ -2526,6 +2571,7 @@ UndoRecordMove(ObjectInst *inst, rw::V3d oldPos, ObjectInst *lodInst, rw::V3d lo
 void
 UndoRecordRotate(ObjectInst *inst, rw::Quat oldRot)
 {
+	if(SampActive() || (inst && SampOwns(inst))) return;
 	UndoAction a = {};
 	a.type = UNDO_ROTATE;
 	a.inst = inst;
@@ -2537,20 +2583,34 @@ UndoRecordRotate(ObjectInst *inst, rw::Quat oldRot)
 void
 UndoRecordDelete(ObjectInst **insts, int num)
 {
+	if(SampActive() || num <= 0) return;
+	std::vector<ObjectInst*> valid;
+	valid.reserve(num);
+	for(int i = 0; i < num; i++)
+		if(insts[i] && !SampOwns(insts[i]))
+			valid.push_back(insts[i]);
+	if(valid.empty()) return;
 	UndoAction a = {};
 	a.type = UNDO_DELETE;
-	a.numDeleted = num;
-	a.deletedInsts.assign(insts, insts + num);
+	a.numDeleted = (int)valid.size();
+	a.deletedInsts = valid;
 	pushUndo(&a);
 }
 
 void
 UndoRecordPaste(ObjectInst **insts, int num)
 {
+	if(SampActive() || num <= 0) return;
+	std::vector<ObjectInst*> valid;
+	valid.reserve(num);
+	for(int i = 0; i < num; i++)
+		if(insts[i] && !SampOwns(insts[i]))
+			valid.push_back(insts[i]);
+	if(valid.empty()) return;
 	UndoAction a = {};
 	a.type = UNDO_PASTE;
-	a.numPasted = num;
-	a.pastedInsts.assign(insts, insts + num);
+	a.numPasted = (int)valid.size();
+	a.pastedInsts = valid;
 	pushUndo(&a);
 }
 
@@ -2560,16 +2620,24 @@ UndoRecordTransformBatch(UndoTransform *transforms, int num)
 	if(num <= 0)
 		return;
 
+	if(SampActive()) return;
+	std::vector<UndoTransform> valid;
+	valid.reserve(num);
+	for(int i = 0; i < num; i++)
+		if(transforms[i].inst && !SampOwns(transforms[i].inst))
+			valid.push_back(transforms[i]);
+	if(valid.empty()) return;
 	UndoAction a = {};
 	a.type = UNDO_TRANSFORM_BATCH;
-	a.numTransforms = num;
-	a.transforms.assign(transforms, transforms + num);
+	a.numTransforms = (int)valid.size();
+	a.transforms = valid;
 	pushUndo(&a);
 }
 
 void
 Undo(void)
 {
+	if(SampActive()){ SampUndo(false); return; }
 	if(undoPos <= 0) return;
 	undoPos--;
 	UndoAction *a = &undoStack[undoPos];
@@ -2610,6 +2678,7 @@ Undo(void)
 void
 Redo(void)
 {
+	if(SampActive()){ SampUndo(true); return; }
 	if(undoPos >= undoCount) return;
 	UndoAction *a = &undoStack[undoPos];
 	undoPos++;
@@ -2671,7 +2740,7 @@ AddInstance(void)
 	return inst;
 }
 
-void
+int
 CopySelected(void)
 {
 	clipboard.clear();
@@ -2690,11 +2759,19 @@ CopySelected(void)
 	}
 	if(capped)
 		Toast(TOAST_COPY_PASTE, "Copy limited to first %d selected instance(s)", MAX_BATCH_OBJECTS);
+	if(SampActive()){
+		int copied = SampCopy(clipboard);
+		if(copied == 0 && !clipboard.empty())
+			Toast(TOAST_COPY_PASTE, "Cannot copy vanilla world objects while SA-MP editing is active");
+		return copied;
+
+	}
 	if(!clipboard.empty())
 		log("Copied %d instance(s)\n", (int)clipboard.size());
+	return (int)clipboard.size();
 }
 
-void
+int
 CutSelected(void)
 {
 	clipboard.clear();
@@ -2714,11 +2791,20 @@ CutSelected(void)
 	if(capped)
 		Toast(TOAST_COPY_PASTE, "Cut limited to first %d selected instance(s)", MAX_BATCH_OBJECTS);
 	if(clipboard.empty())
-		return;
+		return 0;
 
+	if(SampActive()){
+		int cut = SampCut(clipboard);
+		clipboardIsCut = cut > 0;
+		if(cut == 0)
+			Toast(TOAST_COPY_PASTE, "Cannot cut vanilla world objects while SA-MP editing is active");
+		return cut;
+
+	}
 	clipboardIsCut = true;
-	DeleteSelected();
-	log("Cut %d instance(s)\n", (int)clipboard.size());
+	int deleted = DeleteSelected();
+	log("Cut %d instance(s)\n", deleted);
+	return deleted;
 }
 
 static ObjectInst*
@@ -2905,7 +2991,7 @@ PasteCutClipboard(void)
 	ClearSelection();
 	for(int i = 0; i < (int)clipboard.size(); i++){
 		ObjectInst *inst = clipboard[i];
-		if(inst == nil)
+		if(inst == nil || (!SampActive() && SampOwns(inst)))
 			continue;
 		if(inst->m_isDeleted)
 			inst->Undelete();
@@ -2924,6 +3010,11 @@ PasteCutClipboard(void)
 static int
 pasteClipboard(bool pasteInPlace)
 {
+	if(SampActive()){
+		int count = SampPaste(clipboard,pasteInPlace,clipboardIsCut);
+		if(clipboardIsCut) clipboardIsCut = false;
+		return count;
+	}
 	if(clipboard.empty()) return 0;
 	if(clipboardIsCut)
 		return PasteCutClipboard();
@@ -2937,13 +3028,18 @@ pasteClipboard(bool pasteInPlace)
 	lodsCopiedWithParent.reserve(clipboard.size());
 
 	for(int i = 0; i < (int)clipboard.size(); i++){
+		if(!SampActive() && SampOwns(clipboard[i]))
+			continue;
 		ObjectInst *lod = findPasteSourceLod(clipboard[i], nil, nil);
 		if(lod)
 			lodsCopiedWithParent.insert(lod);
 	}
-	for(int i = 0; i < (int)clipboard.size(); i++)
+	for(int i = 0; i < (int)clipboard.size(); i++){
+		if(!SampActive() && SampOwns(clipboard[i]))
+			continue;
 		if(lodsCopiedWithParent.find(clipboard[i]) == lodsCopiedWithParent.end())
 			toPaste.push_back(clipboard[i]);
+	}
 
 	rw::V3d offset = getClipboardPasteOffset(toPaste.data(), (int)toPaste.size(), pasteInPlace);
 

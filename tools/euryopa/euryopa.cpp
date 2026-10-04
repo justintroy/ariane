@@ -1298,7 +1298,7 @@ CaptureObjectTransformTargets(ObjectInst *leader, bool includeSelection,
 	if(includeSelection){
 		for(CPtrNode *p = selection.first; p; p = p->next){
 			ObjectInst *inst = (ObjectInst*)p->item;
-			if(inst->m_isDeleted || directTargetSet.find(inst) != directTargetSet.end())
+			if(inst->m_isDeleted || !IsInstInIplMapDocument(inst) || directTargetSet.find(inst) != directTargetSet.end())
 				continue;
 			directTargets.push_back(inst);
 			directTargetSet.insert(inst);
@@ -2392,7 +2392,7 @@ dogizmo(void)
 	}
 
 	ObjectInst *inst = (ObjectInst*)selection.first->item;
-	if(inst->m_isDeleted)
+	if(inst->m_isDeleted || !IsInstInIplMapDocument(inst))
 		return;
 
 	static bool wasDragging = false;
@@ -2784,6 +2784,7 @@ Draw(void)
 	ImGui::Render();
 
 	ImGui_ImplRW_RenderDrawLists(ImGui::GetDrawData());
+	AgentBridgeCaptureAfterGuiRender();
 
 	Scene.camera->endUpdate();
 	Scene.camera->showRaster(rw::Raster::FLIPWAITVSYNCH);

@@ -3,6 +3,8 @@
 #include <ws2tcpip.h>
 #endif
 #include "euryopa.h"
+#include "samp_editor.h"
+#include "samp_document.h"
 #include "agentbridge.h"
 
 #include <algorithm>
@@ -61,6 +63,7 @@ agentBuildId(void)
 static bool gAgentBridgeInitialized;
 static bool gAgentBridgeEnabled;
 static bool gAgentCapturePending;
+static bool gAgentCaptureIncludeGui;
 static char gAgentBridgeDirectory[1024];
 static char gAgentSocketPath[1024];
 static char gAgentSceneLogicalPath[256];
@@ -140,6 +143,7 @@ struct AgentSceneSnapshot
 	bool deleted;
 };
 static bool gAgentSessionActive;
+static std::string gSampSessionSnapshot;
 static std::string gAgentSessionId;
 static std::vector<AgentSceneSnapshot> gAgentSessionSnapshot;
 // Native map instances temporarily suppressed inside a leased scratch session.
@@ -1016,12 +1020,16 @@ handleRequest(const std::vector<std::string> &lines)
 			"\"analyze_placement\",\"fit_terrain\","
 			"\"place\",\"batch\",\"transform\",\"transform3d\",\"suppress_world_models\","
 			"\"delete\",\"clear\",\"list\",\"validate\",\"camera\",\"capture\","
-			"\"capture_pose\",\"save\"]");
+			"\"capture_pose\",\"samp\",\"save\"]");
 		return;
 	}
 	if(command == "scene"){
 		if(lines.size() < 4 || lines[2].empty() || lines[3].empty()){
 			writeError(requestId, "scene requires logical and physical IPL paths");
+			return;
+		}
+		if(gAgentSessionActive){
+			writeError(requestId, "commit or rollback the scratch session before switching scenes");
 			return;
 		}
 		CloseIplMapDocument();
@@ -1040,6 +1048,23 @@ handleRequest(const std::vector<std::string> &lines)
 			"\",\"physical_path\":\"" + jsonEscape(gAgentScenePhysicalPath) + "\"");
 		return;
 	}
+	if(command == "samp"){
+        if(lines.size()!=3){ writeError(requestId,"samp requires a JSON request"); return; }
+        try {
+            // Read-only requests and writes are classified before dispatch.
+            auto request = samp::Json::parse(lines[2]);
+            std::string op=request.at("op");
+            bool read=op=="inspect" || op=="code" || op=="preview_import" || op=="textures" || op=="window" ||
+                (op=="replace" && request.value("validate_only",false));
+            bool write=op=="save" || op=="export";
+            if(!read && !write && !requireAgentSession(requestId)) return;
+            if(write && gAgentSessionActive){ writeError(requestId,"commit or rollback before saving/exporting"); return; }
+            std::string result=SampRequest(lines[2]);
+            if(!read && !write) ++gAgentSceneRevision;
+            writeResponse(requestId,true,"\"samp\":"+result);
+        } catch(const std::exception &e) { writeError(requestId,e.what()); }
+        return;
+    }
 	if(command == "session_begin"){
 		if(gAgentSceneLogicalPath[0] == '\0'){
 			writeError(requestId, "set an agent scene before beginning a session");
@@ -1050,6 +1075,7 @@ handleRequest(const std::vector<std::string> &lines)
 			return;
 		}
 		std::string sessionId = lines.size() > 2 && !lines[2].empty() ? lines[2] : requestId;
+		gSampSessionSnapshot = SampSnapshot();
 		beginAgentSession(sessionId);
 		writeResponse(requestId, true, std::string("\"session_id\":\"") +
 			jsonEscape(sessionId.c_str()) + "\",\"snapshot_instances\":" +
@@ -1072,6 +1098,7 @@ handleRequest(const std::vector<std::string> &lines)
 		}
 		std::string sessionId = gAgentSessionId;
 		rollbackAgentSession();
+		if(!gSampSessionSnapshot.empty()) SampRestore(gSampSessionSnapshot);
 		gAgentSceneRevision++;
 		writeResponse(requestId, true, std::string("\"rolled_back_session\":\"") +
 			jsonEscape(sessionId.c_str()) + "\",\"live_instances\":" +
@@ -1088,6 +1115,13 @@ handleRequest(const std::vector<std::string> &lines)
 		writeResponse(requestId, true, std::string("\"committed_session\":\"") +
 			jsonEscape(sessionId.c_str()) + "\",\"live_instances\":" +
 			std::to_string(countAgentInstances(false)));
+		return;
+	}
+	if(SampActive() &&
+	   (command == "fit_terrain" || command == "place" || command == "batch" ||
+	    command == "transform" || command == "transform3d" || command == "delete" ||
+	    command == "suppress_world_models" || command == "clear")){
+		writeError(requestId, "use SA-MP document operations while SA-MP editing is active");
 		return;
 	}
 	if(command == "catalog"){
@@ -2304,6 +2338,7 @@ handleRequest(const std::vector<std::string> &lines)
 		strncpy(gAgentCapturePath, lines[2].c_str(), sizeof(gAgentCapturePath) - 1);
 		gAgentCapturePath[sizeof(gAgentCapturePath) - 1] = '\0';
 		gAgentCaptureLabel = lines.size() > 3 ? lines[3] : "current";
+		gAgentCaptureIncludeGui = lines.size() > 4 && lines[4] == "1";
 		gAgentCapturePose = currentCameraPose();
 		gAgentCaptureCameraRevision = gAgentCameraRevision;
 		gAgentCaptureRestore = false;
@@ -2389,8 +2424,8 @@ AgentBridgeUpdate(void)
 		handleRequest(lines);
 }
 
-void
-AgentBridgeCaptureAfterWorldRender(void)
+static void
+captureAgentFramebuffer(void)
 {
 	if(!gAgentCapturePending || Scene.camera == nil || Scene.camera->frameBuffer == nil)
 		return;
@@ -2426,4 +2461,11 @@ AgentBridgeCaptureAfterWorldRender(void)
 	gAgentCaptureRestore = false;
 	gAgentCaptureLabel.clear();
 	gAgentPendingRequestId.clear();
+}
+
+bool AgentBridgeSessionActive() { return gAgentSessionActive; }
+
+void AgentBridgeCaptureAfterWorldRender() { if(!gAgentCaptureIncludeGui) captureAgentFramebuffer(); }
+void AgentBridgeCaptureAfterGuiRender() {
+    if(gAgentCaptureIncludeGui) { captureAgentFramebuffer(); gAgentCaptureIncludeGui=false; }
 }

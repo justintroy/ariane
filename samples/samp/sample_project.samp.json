@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "next_id": 5,
+  "groups": [
+    "structures",
+    "amenities"
+  ],
+  "asset_paths": [],
+  "preview": {
+    "world": 0,
+    "interior": 0
+  },
+  "objects": [
+    {
+      "id": 1,
+      "group": "structures",
+      "model": 19379,
+      "position": [
+        1540.0,
+        -1670.0,
+        14.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        90.0
+      ],
+      "world": 0,
+      "interior": 0,
+      "player": -1,
+      "stream": 350.0,
+      "draw": 150.0,
+      "area": -1,
+      "priority": 1,
+      "materials": {
+        "0": {
+          "type": "texture",
+          "model": 19379,
+          "txd": "all_walls",
+          "texture": "wall_stone",
+          "color": 3424806058
+        }
+      }
+    },
+    {
+      "id": 2,
+      "group": "amenities",
+      "model": 19379,
+      "position": [
+        1540.0,
+        -1665.0,
+        14.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        90.0
+      ],
+      "world": 0,
+      "interior": 0,
+      "player": -1,
+      "stream": 300.0,
+      "draw": 150.0,
+      "area": -1,
+      "priority": 0,
+      "materials": {
+        "1": {
+          "type": "text",
+          "text": "Ariane SA-MP Project\nSample Text",
+          "size": 90,
+          "font": "Arial",
+          "font_size": 22,
+          "bold": true,
+          "foreground": 4294967295,
+          "background": 4279312947,
+          "align": 1
+        }
+      }
+    },
+    {
+      "id": 3,
+      "group": "structures",
+      "model": 19379,
+      "position": [
+        1540.0,
+        -1660.0,
+        14.5
+      ],
+      "rotation": [
+        0.0,
+        0.0,
+        90.0
+      ],
+      "world": 0,
+      "interior": 0,
+      "player": -1,
+      "stream": 300.0,
+      "draw": 0.0,
+      "area": -1,
+      "priority": 0,
+      "materials": {}
+    }
+  ],
+  "removals": [
+    {
+      "id": 4,
+      "group": "structures",
+      "model": 6153,
+      "position": [
+        1540.0,
+        -1670.0,
+        14.5
+      ],
+      "radius": 25.0
+    }
+  ]
+}

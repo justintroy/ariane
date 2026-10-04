@@ -1,4 +1,5 @@
 #include "euryopa.h"
+#include "samp_editor.h"
 
 static char gIplMapDocumentLogicalPath[1024];
 static char gIplMapDocumentPhysicalPath[1024];
@@ -64,6 +65,8 @@ GetIplMapDocumentPhysicalPath(void)
 bool
 IsInstInIplMapDocument(const ObjectInst *inst)
 {
+	if(SampActive()) return SampOwns(inst);
+	if(SampOwns(inst)) return false;
 	if(inst == nil || inst->m_file == nil || inst->m_file->name == nil)
 		return false;
 	// Runtime-opened external IPLs remain visible after leaving document mode,

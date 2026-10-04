@@ -118,11 +118,11 @@ class ArianeClient:
 			raise ArianeError(response.get("error", "unknown Ariane error"), response)
 		return response
 
-	def capture_current(self, output_path: Path, *, label: str = "current") -> dict:
+	def capture_current(self, output_path: Path, *, label: str = "current", include_ui: bool = False) -> dict:
 		"""Capture the live viewport and retain the exact pose used as provenance."""
 		output_path = Path(output_path).resolve()
 		output_path.parent.mkdir(parents=True, exist_ok=True)
-		return self.command("capture", output_path, label)
+		return self.command("capture", output_path, label, 1 if include_ui else 0)
 
 	def capture_at_pose(self, output_path: Path, *, position: list[float],
 	                    target: list[float], up: list[float] | None = None,

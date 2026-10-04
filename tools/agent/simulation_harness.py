@@ -13,6 +13,8 @@ import argparse
 from contextlib import AbstractContextManager
 import json
 import math
+import os
+import secrets
 from pathlib import Path
 import socket
 import struct
@@ -75,8 +77,16 @@ class SimulatedArianeEngine(AbstractContextManager):
 			directory.mkdir(parents=True, exist_ok=True)
 		self.socket_path.unlink(missing_ok=True)
 		self._stop.clear()
-		self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-		self._socket.bind(str(self.socket_path))
+		self._tcp = not hasattr(socket, "AF_UNIX")
+		self._saved_environment = {key: os.environ.get(key) for key in ("ARIANE_ENGINE_TCP_PORT", "ARIANE_ENGINE_TOKEN")}
+		self._socket = socket.socket(socket.AF_INET if self._tcp else socket.AF_UNIX, socket.SOCK_STREAM)
+		if self._tcp:
+			self._socket.bind(("127.0.0.1", 0))
+			self._token = secrets.token_hex(32)
+			os.environ["ARIANE_ENGINE_TCP_PORT"] = str(self._socket.getsockname()[1])
+			os.environ["ARIANE_ENGINE_TOKEN"] = self._token
+		else:
+			self._socket.bind(str(self.socket_path))
 		self._socket.listen(16)
 		self._socket.settimeout(0.05)
 		self._thread = threading.Thread(target=self._serve, daemon=True)
@@ -90,6 +100,10 @@ class SimulatedArianeEngine(AbstractContextManager):
 		if self._socket:
 			self._socket.close()
 		self.socket_path.unlink(missing_ok=True)
+		if self._tcp:
+			for key, value in self._saved_environment.items():
+				if value is None: os.environ.pop(key, None)
+				else: os.environ[key] = value
 
 	def _response(self, request_id: str, ok: bool, body: dict) -> bytes:
 		return (json.dumps({"protocol_version": PROTOCOL_VERSION,
@@ -111,6 +125,9 @@ class SimulatedArianeEngine(AbstractContextManager):
 						raise ValueError("invalid framed request size")
 					packet = self._recv_exact(connection, request_size)
 					lines = packet.decode().splitlines()
+					if self._tcp:
+						if not lines or lines.pop(0) != "ARIANE_AUTH/1 " + self._token:
+							raise ValueError("authentication failed")
 					if len(lines) < 3 or lines[0] != f"ARIANE_IPC/{PROTOCOL_VERSION}":
 						raise ValueError("unsupported or malformed protocol envelope")
 					request_id, command, *fields = lines[1:]

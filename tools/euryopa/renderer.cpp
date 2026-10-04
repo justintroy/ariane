@@ -1,5 +1,6 @@
 #define WITH_D3D
 #include "euryopa.h"
+#include "samp_editor.h"
 #include "templates.h"
 #include <algorithm>
 #include <vector>
@@ -161,7 +162,7 @@ SetupVisibilitySimple(ObjectInst *inst, float *distout)
 			return VIS_INVISIBLE;
 		instatm = (rw::Atomic*)inst->m_rwObject;
 		if(instatm->geometry != atm->geometry)
-			instatm->setGeometry(atm->geometry, 0);
+			if(!SampOwns(inst)) instatm->setGeometry(atm->geometry, 0);
 	}
 
 	return VIS_VISIBLE;
@@ -218,7 +219,7 @@ SetupVisibilityIII(ObjectInst *inst, float *distout)
 			return VIS_INVISIBLE;
 		instatm = (rw::Atomic*)inst->m_rwObject;
 		if(instatm->geometry != atm->geometry)
-			instatm->setGeometry(atm->geometry, 0);
+			if(!SampOwns(inst)) instatm->setGeometry(atm->geometry, 0);
 	}
 
 	return VIS_VISIBLE;
@@ -267,7 +268,7 @@ SetupVisibilitySA(ObjectInst *inst, float camdist)
 			return VIS_INVISIBLE;
 		instatm = (rw::Atomic*)inst->m_rwObject;
 		if(instatm->geometry != atm->geometry)
-			instatm->setGeometry(atm->geometry, 0);
+			if(!SampOwns(inst)) instatm->setGeometry(atm->geometry, 0);
 	}
 
 	int ret = VIS_VISIBLE;
@@ -539,6 +540,8 @@ myRenderCB(rw::Atomic *atomic)
 static void
 RenderInst(ObjectInst *inst)
 {
+	if(SampHidden(inst)) return;
+	SampApplyMaterials(inst);
 	static rw::RGBA black = { 0, 0, 0, 255 };
 	static rw::RGBA red = { 255, 0, 0, 255 };
 	static rw::RGBA green = { 0, 255, 0, 255 };
@@ -613,6 +616,7 @@ RenderTransparentInst(ObjectInst *inst)
 static void
 ProcessBuilding(ObjectInst *inst)
 {
+	if(SampHidden(inst)) return;
 	float dist;
 	if(inst->m_isBigBuilding || inst->m_scanCode == currentScanCode)
 		return;
@@ -635,6 +639,7 @@ ProcessBuilding(ObjectInst *inst)
 static void
 ProcessBigBuilding(ObjectInst *inst)
 {
+	if(SampHidden(inst)) return;
 	float dist;
 	if(!inst->m_isBigBuilding || inst->m_scanCode == currentScanCode)
 		return;

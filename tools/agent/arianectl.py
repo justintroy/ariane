@@ -32,6 +32,10 @@ def emit(payload: object) -> None:
 
 
 def add_engine_commands(sub: argparse._SubParsersAction) -> None:
+	samp = sub.add_parser("samp", help="SA-MP document operations")
+	samp.add_argument("operation", choices=("inspect", "code", "preview", "preview_import", "import", "update", "delete", "duplicate", "material", "removal", "textures", "open", "save", "export", "clear", "undo", "redo", "patch", "place", "replace", "window"))
+	samp.add_argument("--params", default="{}", help="JSON parameters")
+	samp.add_argument("--file", type=Path, help="Read JSON parameters from a file")
 	sub.add_parser("ping")
 	sub.add_parser("capabilities")
 	scene = sub.add_parser("scene")
@@ -102,6 +106,7 @@ def add_engine_commands(sub: argparse._SubParsersAction) -> None:
 	capture = sub.add_parser("capture")
 	capture.add_argument("path", type=Path)
 	capture.add_argument("--label", default="current")
+	capture.add_argument("--include-ui", action="store_true")
 	capture_pose = sub.add_parser("capture-pose")
 	capture_pose.add_argument("path", type=Path)
 	for name in ("px", "py", "pz", "tx", "ty", "tz"): capture_pose.add_argument(name, type=float)
@@ -165,7 +170,7 @@ def engine_command(client: ArianeClient, args: argparse.Namespace) -> dict:
 			[args.start_x, args.start_y, args.start_z],
 			[args.target_x, args.target_y, args.target_z],
 			target_tolerance=args.target_tolerance)}
-	if command == "capture": return client.capture_current(args.path, label=args.label)
+	if command == "capture": return client.capture_current(args.path, label=args.label, include_ui=args.include_ui)
 	if command == "capture-pose":
 		return client.capture_at_pose(args.path, position=[args.px, args.py, args.pz],
 		                              target=[args.tx, args.ty, args.tz], fov=args.fov,
@@ -300,7 +305,12 @@ def main(argv: list[str] | None = None) -> int:
 	sub.add_parser("validate-composition")
 	args = parser.parse_args(argv)
 	try:
-		if args.command in {"call", "survey", "environment"}:
+		if args.command == "samp":
+			params = json.loads(args.file.read_text(encoding="utf-8") if args.file else args.params)
+			if not isinstance(params, dict): raise ValueError("parameters must be a JSON object")
+			params["op"] = args.operation
+			payload = ArianeClient(args.socket, args.timeout).command("samp", json.dumps(params))
+		elif args.command in {"call", "survey", "environment"}:
 			service = ArianeService(args.socket, args.db, args.timeout, args.discovery_dir, args.state_dir)
 			if args.command == "call":
 				params = json.loads(args.file.read_text() if args.file else args.params)

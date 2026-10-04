@@ -462,8 +462,8 @@ void PreviewObjectTransformTargets(ObjectInst *leader,
 int CommitObjectTransformTargets(std::vector<UndoTransform> &transforms);
 
 // Copy/Paste
-void CopySelected(void);
-void CutSelected(void);
+int CopySelected(void);
+int CutSelected(void);
 int PasteClipboard(void);
 int PasteClipboardInPlace(void);
 
@@ -756,6 +756,7 @@ struct ObjectInst
 
 	void UpdateMatrix(void);
 	void *CreateRwObject(void);
+	void DestroyRwObject(void);
 	void Init(FileObjectInstance *fi);
 	void SetupBigBuilding(void);
 	CRect GetBoundRect(void);
@@ -774,7 +775,7 @@ ObjectInst *GetInstanceByID(int32 id);
 int32 pick(void);
 ObjectInst *AddInstance(void);
 void ClearSelection(void);
-void DeleteSelected(void);
+int DeleteSelected(void);
 int DeleteAllInstances(void);
 void RemoveInstFromSectors(ObjectInst *inst);
 

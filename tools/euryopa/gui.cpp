@@ -1,4 +1,5 @@
 #include "euryopa.h"
+#include "samp_editor.h"
 #include "autocol.h"
 #include "modloader.h"
 #include "imgui/imgui_internal.h"
@@ -1698,6 +1699,7 @@ removeLegacyWholeMapOverrides(void)
 static bool
 saveAllIpls(const char *onlyScene = nil)
 {
+	if(SampActive()){ log("Save SA-MP projects from the SA-MP window.\n"); return false; }
 	if(warnStreamingBinarySaveBlockedByRunningGame("Save"))
 		return false;
 	if(warnModloaderExportShadowedBeforeSave("Save"))
@@ -8328,6 +8330,8 @@ gui(void)
 
 	if(!CPad::IsCtrlDown() && CPad::IsKeyJustDown('X')) showToolsWindow ^= 1;
 	if(showToolsWindow) uiToolsWindow();
+	SampTick();
+	SampDrawWindow();
 
 	{
 		static SAPaths::Node *prevSaNode = nil;

@@ -4,9 +4,11 @@
 #include "telemetry.h"
 #include "modloader.h"
 #include <stdlib.h>
+#include <string>
 
 #ifdef _WIN32
 #include <direct.h>
+#include <windows.h>
 #else
 #include <sys/stat.h>
 #include <unistd.h>
@@ -32,6 +34,48 @@ static char gImGuiIniPath[1024];
 
 #ifdef _WIN32
 static const char *RESTART_PARENT_PID_ARG = "--ariane-restart-parent-pid";
+
+static const char *
+GetEditorClipboardText(void *)
+{
+	static std::string utf8;
+	utf8.clear();
+	if(!OpenClipboard((HWND)engineOpenParams.window))
+		return utf8.c_str();
+	HANDLE data = GetClipboardData(CF_UNICODETEXT);
+	if(data){
+		const wchar_t *wide = (const wchar_t *)GlobalLock(data);
+		if(wide){
+			int size = WideCharToMultiByte(CP_UTF8, 0, wide, -1, nil, 0, nil, nil);
+			if(size > 0){
+				utf8.resize(size);
+				WideCharToMultiByte(CP_UTF8, 0, wide, -1, &utf8[0], size, nil, nil);
+				utf8.pop_back();
+			}
+			GlobalUnlock(data);
+		}
+	}
+	CloseClipboard();
+	return utf8.c_str();
+}
+
+static void
+SetEditorClipboardText(void *, const char *text)
+{
+	if(text == nil) text = "";
+	int size = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, nil, 0);
+	if(size <= 0) return;
+	HGLOBAL data = GlobalAlloc(GMEM_MOVEABLE, size * sizeof(wchar_t));
+	if(data == nil) return;
+	wchar_t *wide = (wchar_t *)GlobalLock(data);
+	if(wide == nil){ GlobalFree(data); return; }
+	MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text, -1, wide, size);
+	GlobalUnlock(data);
+	if(!OpenClipboard((HWND)engineOpenParams.window)){ GlobalFree(data); return; }
+	if(EmptyClipboard() && SetClipboardData(CF_UNICODETEXT, data)) data = nil;
+	CloseClipboard();
+	if(data) GlobalFree(data);
+}
 #endif
 
 static bool
@@ -456,9 +500,9 @@ ClearEditorInputState(void)
 
 	if(ImGui::GetCurrentContext()){
 		ImGuiIO &io = ImGui::GetIO();
-		io.MouseDown[0] = false;
-		io.MouseDown[1] = false;
-		io.MouseDown[2] = false;
+		io.AddMouseButtonEvent(0, false);
+		io.AddMouseButtonEvent(1, false);
+		io.AddMouseButtonEvent(2, false);
 		if(ImGui::IsKeyDown(ImGuiKey_LeftShift)) io.AddKeyEvent(ImGuiKey_LeftShift, false);
 		if(ImGui::IsKeyDown(ImGuiKey_RightShift)) io.AddKeyEvent(ImGuiKey_RightShift, false);
 		if(ImGui::IsKeyDown(ImGuiKey_LeftCtrl)) io.AddKeyEvent(ImGuiKey_LeftCtrl, false);
@@ -469,6 +513,10 @@ ClearEditorInputState(void)
 		io.KeyCtrl = false;
 		io.KeyAlt = false;
 		io.KeySuper = false;
+		io.AddKeyEvent(ImGuiMod_Ctrl, false);
+		io.AddKeyEvent(ImGuiMod_Shift, false);
+		io.AddKeyEvent(ImGuiMod_Alt, false);
+		io.AddKeyEvent(ImGuiMod_Super, false);
 	}
 }
 
@@ -518,9 +566,9 @@ SyncEditorInputState(void)
 
 	if(ImGui::GetCurrentContext()){
 		ImGuiIO &io = ImGui::GetIO();
-		io.MouseDown[0] = !!(physicalMouseBtns & 1);
-		io.MouseDown[1] = !!(physicalMouseBtns & 4);
-		io.MouseDown[2] = !!(physicalMouseBtns & 2);
+		io.AddMouseButtonEvent(0, !!(physicalMouseBtns & 1));
+		io.AddMouseButtonEvent(1, !!(physicalMouseBtns & 4));
+		io.AddMouseButtonEvent(2, !!(physicalMouseBtns & 2));
 		if(io.WantCaptureMouse || ImGuizmo::IsOver() || gGizmoHovered || gGizmoUsing)
 			CPad::tempMouseState.btns = 0;
 		if(ImGui::IsKeyDown(ImGuiKey_LeftShift) != (CPad::tempKeystates[KEY_LSHIFT] != 0))
@@ -801,6 +849,11 @@ InitRW(void)
 	Scene.world->addCamera(TheCamera.m_rwcam_viewer);
 
 	ImGui_ImplRW_Init();
+#ifdef _WIN32
+	ImGuiIO &clipboardIO = ImGui::GetIO();
+	clipboardIO.GetClipboardTextFn = GetEditorClipboardText;
+	clipboardIO.SetClipboardTextFn = SetEditorClipboardText;
+#endif
 	char rootDir[1024];
 	if(GetEditorRootDirectory(rootDir, sizeof(rootDir)) &&
 	   BuildPath(gImGuiIniPath, sizeof(gImGuiIniPath), rootDir, "imgui.ini")){
@@ -826,7 +879,26 @@ AppEventHandler(sk::Event e, void *param)
 	Rect *r;
 	MouseState *ms;
 
-	ImGuiEventHandler(e, param);
+#ifdef _WIN32
+	// The pinned RW backend sends physical keys but omits aggregate modifiers.
+	// Sample message-queue state before the key event, preserving short chords.
+	if((e == KEYDOWN || e == KEYUP) && ImGui::GetCurrentContext()){
+		ImGuiIO &input = ImGui::GetIO();
+		input.AddKeyEvent(ImGuiMod_Ctrl, (GetKeyState(VK_CONTROL) & 0x8000) != 0);
+		input.AddKeyEvent(ImGuiMod_Shift, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+		input.AddKeyEvent(ImGuiMod_Alt, (GetKeyState(VK_MENU) & 0x8000) != 0);
+		input.AddKeyEvent(ImGuiMod_Super, ((GetKeyState(VK_LWIN) | GetKeyState(VK_RWIN)) & 0x8000) != 0);
+	}
+#endif
+	if(e == MOUSEBTN && ImGui::GetCurrentContext()){
+		// Queue transitions so a press/release between frames remains a click.
+		ImGuiIO &input = ImGui::GetIO();
+		MouseState *mouse = (MouseState*)param;
+		input.AddMouseButtonEvent(0, !!(mouse->buttons & 1));
+		input.AddMouseButtonEvent(1, !!(mouse->buttons & 4));
+		input.AddMouseButtonEvent(2, !!(mouse->buttons & 2));
+	}else
+		ImGuiEventHandler(e, param);
 
 	ImGuiIO &io = ImGui::GetIO();
 //	if(io.WantCaptureMouse || ImGuizmo::IsOver())
