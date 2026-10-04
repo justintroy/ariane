@@ -107,7 +107,7 @@ $inspection = Invoke-Ariane @('samp', 'inspect')
 $move = Write-Request 'move-props.json' @{ group = 'Interior\North Hall\Props'; expected_revision = $inspection.revision; pivot = @(0,0,0); translation = @(0.2,0,0) }
 Invoke-Ariane @('samp', 'group_transform', '--file', $move)
 $inspection = Invoke-Ariane @('samp', 'inspect')
-$wall = $inspection.document.objects | Where-Object model -eq 19353 | Select-Object -First 1
+$wall = $inspection.document.objects | Where-Object { $_.model -eq 19353 -and $_.group -like '*\Walls' } | Select-Object -First 1
 $tint = Write-Request 'tint-wall.json' @{ expected_revision = $inspection.revision; ids = @($wall.id); slot = 0; material = @{ type = 'texture'; model = -1; txd = 'none'; texture = 'none'; color = 4293252286 } }
 Invoke-Ariane @('samp', 'material_bulk', '--file', $tint)
 Invoke-Ariane @('samp', 'capture_views', '--file', $capture)
