@@ -51,6 +51,8 @@ pawncc streamer_map.pwn "-ipath/to/qawno/include" -ostreamer_map.amx
 pawncc native_map.pwn "-ipath/to/qawno/include" -onative_map.amx
 ```
 
+The exterior yard plan intentionally places its `SERVICE ACCESS` text panel in the left south opening. Keep the separate central 5-unit south opening clear as the entrance.
+
 ## Executed validation (2026-10-03)
 
 All four Pawn files compile. Multi-group files contain minimal `main()` entrypoints and otherwise remain include-style helpers. Native sample emits two bool-tag warnings; all files emit the existing legacy `a_samp` wrapper warning. Import previews report unsupported `Remove*Buildings` helper definitions/calls. The static importer does not execute helpers; inspect diagnostics before accepting supported records. Sample project opens with three objects.

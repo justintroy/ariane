@@ -22,12 +22,12 @@ Json validateRemovals()
         Json next=document.data;
         next["removals"]=Json::array();
         document.request({{"op","replace"},{"document",next},{"label","Renderer removal validation"}});
-        sync();
+        syncSampDocument();
     };
     auto addRemoval=[&](int model,float x,float y,float z,float radius) {
         document.request({{"op","removal"},{"removal",{{"model",model},{"group","renderer-validation"},
             {"position",{x,y,z}},{"radius",radius}}}});
-        sync();
+        syncSampDocument();
     };
     auto removalCallCount=[](const std::string &code) {
         const std::string marker="RemoveBuildingForPlayer(playerid,";
@@ -62,19 +62,19 @@ Json validateRemovals()
         addRemoval(19400,4,0,0,3);
         auto overlap=instance(19400,2,0,0);
         expect("overlapping_records_hide",SampHidden(&overlap));
-        document.request({{"op","undo"}}); sync();
+        document.request({{"op","undo"}}); syncSampDocument();
         expect("undo_one_overlap_keeps_other_active",document.data["removals"].size()==1 && SampHidden(&overlap));
-        document.request({{"op","undo"}}); sync();
+        document.request({{"op","undo"}}); syncSampDocument();
         expect("undo_last_overlap_restores_instance",document.data["removals"].empty() && !SampHidden(&overlap));
-        document.request({{"op","redo"}}); sync();
+        document.request({{"op","redo"}}); syncSampDocument();
         expect("redo_restores_removal",document.data["removals"].size()==1 && SampHidden(&overlap));
-        document.request({{"op","redo"}}); sync();
+        document.request({{"op","redo"}}); syncSampDocument();
         expect("redo_restores_overlap",document.data["removals"].size()==2 && SampHidden(&overlap));
     } catch(...) {
-        document.restoreSnapshot(original); sync();
+        document.restoreSnapshot(original); syncSampDocument();
         throw;
     }
-    document.restoreSnapshot(original); sync();
+    document.restoreSnapshot(original); syncSampDocument();
     return {{"checks",checks},{"passed",checks.size()}};
 }
 
@@ -101,7 +101,7 @@ Json validateMetadataVisibility()
     auto restore=[&]() {
         SampClearCaptureFilters();
         document.restoreSnapshot(original);
-        sync();
+        syncSampDocument();
         if(originalCaptureFiltersActive)
             SampSetCaptureFilters(originalCaptureWorld,originalCaptureInterior);
         else
@@ -124,7 +124,7 @@ Json validateMetadataVisibility()
             }
         }
         document.request({{"op","replace"},{"document",updated},{"label","Renderer metadata visibility validation"}});
-        sync();
+        syncSampDocument();
 
         ObjectInst *worldInteriorMatch=objects.at(ids[0]);
         ObjectInst *worldInteriorMismatch=objects.at(ids[1]);
@@ -150,7 +150,7 @@ Json validateMetadataVisibility()
         expect("nonowned_draw_distance_uses_native_fallback",SampDrawDistance(&nonOwned,fallback)==fallback);
 
         document.request({{"op","preview"},{"world",2},{"interior",3}});
-        sync();
+        syncSampDocument();
         Json persistedBeforeCapture=document.data;
         unsigned revisionBeforeCapture=document.revision;
         auto captureStateUnchanged=[&]() {
@@ -210,7 +210,7 @@ Json validateClipboard(ObjectInst *fixture)
     auto restore=[&]() {
         document.restoreSnapshot(original);
         active=originalActive;
-        sync();
+        syncSampDocument();
         cutRows=originalCutRows;
         copiedRows=originalCopiedRows;
         checkedObjectIds=originalCheckedObjectIds;
@@ -224,7 +224,7 @@ Json validateClipboard(ObjectInst *fixture)
         Json material={{"type","texture"},{"model",-1},{"txd","renderer-validation"},
             {"texture","clipboard-probe"},{"color",0xFF336699u}};
         document.request({{"op","material"},{"id",fixtureId},{"slot",0},{"material",material}});
-        sync();
+        syncSampDocument();
         Json source=*row(fixtureId);
         ObjectInst vanilla={};
         std::vector<ObjectInst*> mixed={fixture,&vanilla};
@@ -519,18 +519,18 @@ Json validateRenderer()
     bool stable=true, released=true;
     try {
         for(int cycle=0;cycle<50;++cycle) {
-            document.request({{"op","update"},{"id",id},{"changes",{{"model",replacement}}}}); sync();
+            document.request({{"op","update"},{"id",id},{"changes",{{"model",replacement}}}}); syncSampDocument();
             stable=stable && objects[id]==inst;
-            document.request({{"op","undo"}}); sync();
-            document.request({{"op","delete"},{"id",id}}); sync();
+            document.request({{"op","undo"}}); syncSampDocument();
+            document.request({{"op","delete"},{"id",id}}); syncSampDocument();
             released=released && inst->m_rwObject==nullptr && inst->m_animState==nullptr && inst->m_isDeleted;
-            document.request({{"op","undo"}}); sync();
+            document.request({{"op","undo"}}); syncSampDocument();
             stable=stable && objects[id]==inst && inst->m_rwObject!=nullptr && !inst->m_isDeleted;
         }
     } catch(...) {
-        document.restoreSnapshot(snapshot); sync(); throw;
+        document.restoreSnapshot(snapshot); syncSampDocument(); throw;
     }
-    document.restoreSnapshot(snapshot); sync();
+    document.restoreSnapshot(snapshot); syncSampDocument();
     auto after=counts();
     return {{"objects",results},{"lifecycle",{{"cycles",50},{"stable_instances",stable && identities.size()==instanceCount},
         {"deleted_resources_released",released},{"balanced",before==after},{"before",before},{"after",after}}},

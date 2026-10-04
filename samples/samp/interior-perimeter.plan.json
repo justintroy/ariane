@@ -28,7 +28,7 @@
       "font": "Arial",
       "bold": true,
       "size": 90,
-      "font_size": 40,
+      "font_size": 20,
       "align": 1,
       "foreground": 4294967295,
       "background": 4278190080
@@ -74,7 +74,7 @@
     {
       "key": "north-hall.sign.reception",
       "model": 19353,
-      "position": [-10.501458168, 4.817306757, 1001.750243],
+      "position": [-10.501458168, 4.617306757, 1001.750243],
       "rotation": [0.0, 0.0, 270.0],
       "group": "Interior\\North Hall\\Signs",
       "world": 42,

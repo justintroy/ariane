@@ -93,7 +93,7 @@ void retire(ObjectInst *i) {
     i->m_isDeleted=true;
     i->DestroyRwObject();
 }
-void sync() {
+void syncSampDocument() {
     applying=true;
     std::set<int> live;
     for(auto &o:document.data["objects"]) {
@@ -566,7 +566,7 @@ ObjectInst *SampPlace(int model,const rw::V3d &position,const rw::Quat *orientat
     if(orientation) { ObjectInst temporary={}; temporary.m_rotation=*orientation; temporary.UpdateMatrix(); o["rotation"]=angles(&temporary); }
     document.request({{"op","place"},{"object",o}});
     int id=document.data["next_id"].get<int>()-1;
-    sync();
+    syncSampDocument();
     selected=id; if(objects.count(id)) return objects[id]; return nullptr;
 }
 int SampCut(const std::vector<ObjectInst*> &source) {
@@ -581,7 +581,7 @@ int SampCut(const std::vector<ObjectInst*> &source) {
     for(const auto &o:next["objects"]) if(!ids.count(o["id"].get<int>())) kept.push_back(o);
     next["objects"]=std::move(kept);
     document.request({{"op","replace"},{"document",next},{"label","Cut objects"}});
-    sync(); ClearSelection(); return (int)cutRows.size();
+    syncSampDocument(); ClearSelection(); return (int)cutRows.size();
 }
 int SampCopy(const std::vector<ObjectInst*> &source) {
     cutRows.clear(); copiedRows.clear();
@@ -602,7 +602,7 @@ int SampDelete(const std::vector<ObjectInst*> &source) {
     for(const auto &o:next["objects"]) if(!ids.count(o["id"].get<int>())) kept.push_back(o);
     next["objects"]=std::move(kept);
     document.request({{"op","replace"},{"document",next},{"label","Delete objects"}});
-    sync(); ClearSelection(); return (int)ids.size();
+    syncSampDocument(); ClearSelection(); return (int)ids.size();
 }
 int SampPaste(const std::vector<ObjectInst*> &source,bool inPlace,bool cut) {
     std::vector<int> created;
@@ -620,7 +620,7 @@ int SampPaste(const std::vector<ObjectInst*> &source,bool inPlace,bool cut) {
             next["objects"].push_back(o); created.push_back(id);
         }
         if(!created.empty()) document.request({{"op","replace"},{"document",next},{"label","Paste cut objects"}});
-        sync(); ClearSelection();
+        syncSampDocument(); ClearSelection();
         for(const auto &entry:cutRows) {
             int id=entry.second["id"].get<int>();
             if(objects.count(id)) objects[id]->Select();
@@ -635,7 +635,7 @@ int SampPaste(const std::vector<ObjectInst*> &source,bool inPlace,bool cut) {
     }
     if(operations.empty()) return 0;
     int firstId=document.data["next_id"].get<int>();
-    document.request({{"op","patch"},{"operations",operations}}); sync(); ClearSelection();
+    document.request({{"op","patch"},{"operations",operations}}); syncSampDocument(); ClearSelection();
     for(int n=0;n<(int)operations.size();++n) created.push_back(firstId+n);
     for(int id:created) if(objects.count(id)) objects[id]->Select();
     return (int)created.size();
@@ -720,13 +720,13 @@ void SampTick() {
         if(fabs(dot)<0.999999) changes["rotation"]=angles(i);
         if(!changes.empty()) operations.push_back({{"op","update"},{"id",id},{"changes",changes}});
     }
-    if(!operations.empty()) { document.request({{"op","patch"},{"operations",operations}}); sync(); }
+    if(!operations.empty()) { document.request({{"op","patch"},{"operations",operations}}); syncSampDocument(); }
 }
 void SampUndo(bool redo) { invoke({{"op",redo?"redo":"undo"}}); }
 std::string SampSnapshot() { return Json({{"active",active},{"snapshot",document.snapshot()}}).dump(); }
 void SampSetWindowVisible(bool visible) { showSampWindow = visible; }
 bool SampIsWindowVisible() { return showSampWindow; }
-void SampRestore(const std::string &s) { auto j=Json::parse(s); document.restoreSnapshot(j.at("snapshot")); cutRows.clear(); copiedRows.clear(); checkedObjectIds.clear(); active=j.at("active"); sync(); }
+void SampRestore(const std::string &s) { auto j=Json::parse(s); document.restoreSnapshot(j.at("snapshot")); cutRows.clear(); copiedRows.clear(); checkedObjectIds.clear(); active=j.at("active"); syncSampDocument(); }
 std::string SampRequest(const std::string &s) {
     Json r=Json::parse(s); std::string op=r.at("op");
     if(op=="__validate_renderer") {
@@ -765,7 +765,7 @@ std::string SampRequest(const std::string &s) {
     if(op=="open" || op=="clear" || op=="replace" || op=="import") { cutRows.clear(); copiedRows.clear(); checkedObjectIds.clear(); }
     if(op!="inspect" && op!="code" && op!="preview_import" && op!="save" && op!="export" && op!="window") {
         active=op=="replace" && r.contains("active")?r.at("active").get<bool>():true;
-        sync();
+        syncSampDocument();
     }
     return result.dump();
 }
