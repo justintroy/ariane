@@ -526,6 +526,9 @@ rw::V3d GetPlacementPosition(void);
 float GetPlacementBaseOffset(int objectId);
 bool CaptureObjectPreviewPng(int objectId, const char *path, int size, float angle,
 	char *error = nil, size_t errorSize = 0);
+bool CaptureObjectMaterialPreviewPng(int objectId, int slot, const char *txdName,
+	const char *textureName, uint32 color, const char *path, int size, float angle,
+	char *error = nil, size_t errorSize = 0, bool preserveTexture = false);
 
 // Object Browser categories & favourites
 void InitObjectCategories(void);

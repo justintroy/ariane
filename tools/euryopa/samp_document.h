@@ -21,6 +21,7 @@ public:
     void restoreSnapshot(const Json &snapshot);
 private:
     std::vector<Json> undo_, redo_;
+    Json applyPatch(const Json &request);
     void commit(const Json &next, const std::string &label);
 };
 }

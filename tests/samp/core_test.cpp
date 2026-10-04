@@ -21,8 +21,10 @@ static Json importRequest(const std::string &source, const std::string &name = "
 {
     return {{"op", "import"}, {"files", {{{"name", name}, {"source", source}}}}};
 }
-int main(int argc, char **argv)
+#include "plan_patch_test.inl"
+static int runCoreTests(int argc, char **argv)
 {
+    testPlanPatch();
     samp::Document document;
     const std::string source = R"(
 #define BASE 19000
@@ -253,4 +255,17 @@ RemoveBuildingForPlayer(playerid, -1, 0, 0, 0, 50);
         groupCompiler << "public OnPlayerConnect(playerid) { SAMP_RemoveBuildings_G1(playerid); SAMP_RemoveBuildings_G2(playerid); return 1; }\n";
     }
     std::cout << checks << " SA-MP core checks passed\n";
+    return 0;
+}
+int main(int argc, char **argv)
+{
+    try
+    {
+        return runCoreTests(argc, argv);
+    }
+    catch (const std::exception &error)
+    {
+        std::cerr << "SA-MP core test failed: " << error.what() << '\n';
+        return 1;
+    }
 }

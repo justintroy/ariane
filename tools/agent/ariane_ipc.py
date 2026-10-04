@@ -127,7 +127,9 @@ class ArianeClient:
 	def capture_at_pose(self, output_path: Path, *, position: list[float],
 	                    target: list[float], up: list[float] | None = None,
 	                    fov: float = 58.0, label: str = "custom",
-	                    expected_camera_revision: int | None = None) -> dict:
+	                    expected_camera_revision: int | None = None,
+	                    samp_filters: tuple[int, int] | None = None,
+	                    expected_document_revision: int | None = None) -> dict:
 		"""Capture one temporary pose; the engine restores the complete live pose."""
 		up = up or [0.0, 0.0, 1.0]
 		output_path = Path(output_path).resolve()
@@ -135,6 +137,12 @@ class ArianeClient:
 		fields: list[object] = [output_path, label, *position, *target, *up, fov]
 		if expected_camera_revision is not None:
 			fields.append(expected_camera_revision)
+		if samp_filters is not None:
+			if len(samp_filters) != 2 or expected_document_revision is None or expected_camera_revision is None:
+				raise ValueError("SA-MP capture filters require world/interior plus camera and document revisions")
+			fields.extend([int(samp_filters[0]), int(samp_filters[1]), int(expected_document_revision)])
+		elif expected_document_revision is not None:
+			raise ValueError("document revision requires SA-MP capture filters")
 		return self.command("capture_pose", *fields)
 
 	def raycast_segment(self, start: list[float], target: list[float], *,

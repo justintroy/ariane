@@ -3,6 +3,7 @@
 #include "agentbridge.h"
 #include "samp_document.h"
 #include "samp_rotation.h"
+#include "modloader.h"
 #include <map>
 #include <set>
 #include <cmath>
@@ -12,6 +13,17 @@
 #include <cstring>
 #include <tuple>
 #include <algorithm>
+#include <array>
+#include <iomanip>
+#include <limits>
+#include <chrono>
+#include <sys/stat.h>
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/types.h>
+#include <unistd.h>
+#endif
 #ifdef _WIN32
 #include <commdlg.h>
 #pragma comment(lib,"gdi32.lib")
@@ -99,7 +111,10 @@ void sync() {
         }
         if(!i) { i=SampCreateInstance(o["model"],pos.x,pos.y,pos.z); objects[id]=i; identities[i]=id; }
         i->m_isDeleted=false; RemoveInstFromSectors(i); i->m_translation=pos; i->m_rotation=rotation(o["rotation"]);
-        i->m_area=o["interior"].get<int>()<0?0:o["interior"].get<int>(); updateFrame(i);
+        // The native renderer area-culls before the SA-MP world/interior filter
+        // runs. Keep owned previews universal there; SampHidden remains the
+        // authoritative place for persisted and temporary capture filters.
+        i->m_area=13; updateFrame(i);
         if(!i->m_rwObject) {
             if(!def->IsLoaded()) { RequestObject(i->m_objectId); LoadAllRequestedObjects(); }
             i->CreateRwObject();
@@ -222,6 +237,27 @@ size_t textureCursor = 0;
 size_t textureModelCursor = 0;
 bool textureDiscoveryComplete = false;
 bool textureIndexing = false;
+uint64_t textureIndexGeneration = 0;
+bool captureFiltersActive = false;
+int captureWorldFilter = -1;
+int captureInteriorFilter = -1;
+
+void addModelTxdAssociation(int model, int txdSlot) {
+    if(model < 0 || txdSlot < 0) return;
+    auto &modelList = txdToModels[txdSlot];
+    if(std::find(modelList.begin(), modelList.end(), model) != modelList.end()) return;
+    modelList.push_back(model);
+    ++textureIndexGeneration;
+}
+
+void ensureTxdModelsDiscovered(int txdSlot) {
+    if(txdSlot < 0) return;
+    for(int model = 0; model < NUMOBJECTDEFS; ++model) {
+        auto object = GetObjectDef(model);
+        if(object && object->m_txdSlot == txdSlot)
+            addModelTxdAssociation(model, txdSlot);
+    }
+}
 
 void indexTxdSlot(int txdSlot) {
     if(txdSlot < 0 || !indexedTxdSet.insert(txdSlot).second) return;
@@ -235,8 +271,12 @@ void indexTxdSlot(int txdSlot) {
         textureIndex.push_back({
             {"txd_slot", txdSlot},
             {"txd", txd->name},
-            {"texture", tex->name}
+            {"texture", tex->name},
+            {"width", tex->raster ? tex->raster->width : 0},
+            {"height", tex->raster ? tex->raster->height : 0},
+            {"available", tex->raster && tex->raster->width > 0 && tex->raster->height > 0}
         });
+        ++textureIndexGeneration;
     }
 }
 
@@ -244,9 +284,7 @@ void ensureModelTxdDiscovered(int model) {
     if(model < 0 || model >= NUMOBJECTDEFS) return;
     auto obj = GetObjectDef(model);
     if(obj && obj->m_txdSlot >= 0 && GetTxdDef(obj->m_txdSlot)) {
-        auto &modelList = txdToModels[obj->m_txdSlot];
-        if(std::find(modelList.begin(), modelList.end(), model) == modelList.end())
-            modelList.push_back(model);
+        addModelTxdAssociation(model, obj->m_txdSlot);
         if(discoveredTxdSet.insert(obj->m_txdSlot).second)
             discoveredTxdSlots.push_back(obj->m_txdSlot);
     }
@@ -258,9 +296,7 @@ void indexTextures(int budget) {
         int model = (int)textureModelCursor++;
         auto obj = GetObjectDef(model);
         if(obj && obj->m_txdSlot >= 0 && GetTxdDef(obj->m_txdSlot)) {
-            auto &modelList = txdToModels[obj->m_txdSlot];
-            if(std::find(modelList.begin(), modelList.end(), model) == modelList.end())
-                modelList.push_back(model);
+            addModelTxdAssociation(model, obj->m_txdSlot);
             if(discoveredTxdSet.insert(obj->m_txdSlot).second)
                 discoveredTxdSlots.push_back(obj->m_txdSlot);
         }
@@ -275,103 +311,176 @@ void indexTextures(int budget) {
 
 std::string lower(std::string value) { for(auto &c:value) c=(char)tolower((unsigned char)c); return value; }
 
-Json textures(const std::string &query, int limit) {
-    Json found = Json::array();
-    std::string needle = lower(query);
-    limit = std::max(1, std::min(1000, limit));
+long long checkedJsonInteger(const Json &value, const std::string &field, long long minimum, long long maximum) {
+    if(!value.is_number_integer()) throw std::runtime_error(field+" must be an integer");
+    if(value.is_number_unsigned()) {
+        uint64_t number=value.get<uint64_t>();
+        if(number>(uint64_t)maximum) throw std::runtime_error(field+" is out of range");
+        return (long long)number;
+    }
+    long long number=value.get<long long>();
+    if(number<minimum || number>maximum) throw std::runtime_error(field+" is out of range");
+    return number;
+}
 
-    int requestedModel = -1, requestedTxd = -1;
-    bool isNumeric = !needle.empty() && std::all_of(needle.begin(), needle.end(), [](unsigned char c){ return std::isdigit(c) != 0; });
-    if(isNumeric) {
+uint64_t stableHash(const std::string &value) {
+    uint64_t hash = 1469598103934665603ull;
+    for(unsigned char c : value) hash = (hash ^ c) * 1099511628211ull;
+    return hash;
+}
+
+std::string hashString(uint64_t value) {
+    std::ostringstream stream;
+    stream << std::hex << value;
+    return stream.str();
+}
+
+Json textures(const Json &request) {
+    const std::string query = request.value("query", std::string());
+    const std::string needle = lower(query);
+    const std::string txdFilter = lower(request.value("txd", std::string()));
+    const std::string nameFilter = lower(request.value("name", std::string()));
+    int modelFilter = request.contains("model") ? (int)checkedJsonInteger(request.at("model"),"texture model filter",0,NUMOBJECTDEFS-1) : -1;
+    bool hasModelFilter = request.contains("model");
+    if(hasModelFilter && (modelFilter < 0 || modelFilter >= NUMOBJECTDEFS))
+        throw std::runtime_error("texture model filter is out of range");
+    int limit = request.contains("limit") ? (int)checkedJsonInteger(request.at("limit"),"texture limit",1,1000) : 100;
+    size_t offset = 0;
+    std::string cursorResultHash;
+    std::string cursorFilterHash;
+
+    Json filterKey = {{"query", needle}, {"model", hasModelFilter ? Json(modelFilter) : Json(nullptr)},
+        {"txd", txdFilter}, {"name", nameFilter}};
+    std::string filterHash = hashString(stableHash(filterKey.dump()));
+
+    if(hasModelFilter) {
+        ensureModelTxdDiscovered(modelFilter);
+        auto def = GetObjectDef(modelFilter);
+        if(def && def->m_txdSlot >= 0) indexTxdSlot(def->m_txdSlot);
+    } else if(!txdFilter.empty()) {
+        int txdSlot = FindTxdSlot(txdFilter.c_str());
+        if(txdSlot >= 0) {
+            ensureTxdModelsDiscovered(txdSlot);
+            indexTxdSlot(txdSlot);
+        }
+    }
+
+    bool numericQuery = !needle.empty() && std::all_of(needle.begin(), needle.end(), [](unsigned char c){ return std::isdigit(c) != 0; });
+    if(!needle.empty() && numericQuery && !hasModelFilter) {
         try {
             long long value = std::stoll(needle);
             if(value >= 0 && value < NUMOBJECTDEFS) {
-                requestedModel = (int)value;
-                ensureModelTxdDiscovered(requestedModel);
-                auto def = GetObjectDef(requestedModel);
-                if(def && def->m_txdSlot >= 0) {
-                    requestedTxd = def->m_txdSlot;
-                    indexTxdSlot(requestedTxd);
-                }
+                int model = (int)value;
+                ensureModelTxdDiscovered(model);
+                auto def = GetObjectDef(model);
+                if(def && def->m_txdSlot >= 0) indexTxdSlot(def->m_txdSlot);
+                modelFilter = model;
+                hasModelFilter = true;
+                filterKey["model"] = model;
+                filterHash = hashString(stableHash(filterKey.dump()));
             }
         } catch(const std::exception &) {}
     }
 
     std::vector<int> matchingModels;
-    if(!needle.empty() && !isNumeric) {
-        for(int m = 0; m < NUMOBJECTDEFS; ++m) {
-            auto obj = GetObjectDef(m);
-            if(!obj || !obj->m_name[0]) continue;
-            if(lower(obj->m_name).find(needle) != std::string::npos) {
-                matchingModels.push_back(m);
-                ensureModelTxdDiscovered(m);
-                if(obj->m_txdSlot >= 0) indexTxdSlot(obj->m_txdSlot);
-                if(matchingModels.size() >= 30) break;
-            }
+    if(!needle.empty() && !numericQuery && !hasModelFilter && txdFilter.empty() && nameFilter.empty()) {
+        for(int model = 0; model < NUMOBJECTDEFS; ++model) {
+            auto object = GetObjectDef(model);
+            if(!object || !object->m_name[0] || lower(object->m_name).find(needle) == std::string::npos) continue;
+            matchingModels.push_back(model);
+            ensureModelTxdDiscovered(model);
+            if(object->m_txdSlot >= 0) indexTxdSlot(object->m_txdSlot);
+            if(matchingModels.size() >= 30) break;
         }
     }
-
     if(!needle.empty()) {
         int directTxd = FindTxdSlot(needle.c_str());
-        if(directTxd >= 0) indexTxdSlot(directTxd);
+        if(directTxd >= 0) {
+            ensureTxdModelsDiscovered(directTxd);
+            indexTxdSlot(directTxd);
+        }
     }
 
-    std::set<std::tuple<int, std::string, std::string>> seen;
+    if(request.contains("cursor")) {
+        std::string cursor = request.at("cursor").get<std::string>();
+        std::vector<std::string> parts;
+        std::stringstream stream(cursor);
+        std::string part;
+        while(std::getline(stream, part, '.')) parts.push_back(part);
+        if(parts.size() != 4 || parts[0] != "v1")
+            throw std::runtime_error("invalid texture cursor; restart the search");
+        try { offset = (size_t)std::stoull(parts[1]); }
+        catch(const std::exception &) { throw std::runtime_error("invalid texture cursor; restart the search"); }
+        cursorFilterHash = parts[2]; cursorResultHash = parts[3];
+        if(cursorFilterHash != filterHash)
+            throw std::runtime_error("stale texture cursor: filters changed; restart the search");
+    }
 
-    auto addResult = [&](int modelId, const std::string &txdName, const std::string &texName) {
-        if(found.size() >= (size_t)limit) return false;
-        if(!seen.insert(std::make_tuple(modelId, txdName, texName)).second) return true;
-        found.push_back({
-            {"model", modelId},
-            {"txd", txdName},
-            {"texture", texName}
-        });
-        return found.size() < (size_t)limit;
+    std::vector<const Json*> ordered;
+    ordered.reserve(textureIndex.size());
+    for(const auto &entry : textureIndex) ordered.push_back(&entry);
+    std::sort(ordered.begin(), ordered.end(), [](const Json *a, const Json *b) {
+        const auto keyA = std::make_tuple(lower((*a)["txd"].get<std::string>()), lower((*a)["texture"].get<std::string>()),
+            (*a)["txd"].get<std::string>(), (*a)["texture"].get<std::string>());
+        const auto keyB = std::make_tuple(lower((*b)["txd"].get<std::string>()), lower((*b)["texture"].get<std::string>()),
+            (*b)["txd"].get<std::string>(), (*b)["texture"].get<std::string>());
+        return keyA < keyB;
+    });
+    Json found = Json::array();
+    size_t resultCount = 0;
+    uint64_t resultFingerprint = 1469598103934665603ull;
+    auto emit = [&](const Json &entry, int model) {
+        auto object = model >= 0 ? GetObjectDef(model) : nullptr;
+        if(model >= 0 && !object) return;
+        std::string txdName=entry["txd"].get<std::string>();
+        std::string texName=entry["texture"].get<std::string>();
+        bool matchesQuery=needle.empty() || (numericQuery && hasModelFilter) ||
+            lower(txdName).find(needle)!=std::string::npos || lower(texName).find(needle)!=std::string::npos;
+        if(!matchesQuery && object && lower(object->m_name).find(needle)!=std::string::npos) matchesQuery=true;
+        if(!matchesQuery && std::find(matchingModels.begin(),matchingModels.end(),model)!=matchingModels.end()) matchesQuery=true;
+        if(!matchesQuery) return;
+        Json result={{"model",model},{"model_name",object?std::string(object->m_name):std::string()},
+            {"txd",txdName},{"texture",texName},{"width",entry["width"]},{"height",entry["height"]},
+            {"available",entry["available"]},{"source_valid",model>=0 && object!=nullptr},
+            {"usable",model>=0 && object!=nullptr && entry["available"].get<bool>()}};
+        std::string encoded=result.dump();
+        for(unsigned char c:encoded) resultFingerprint=(resultFingerprint^c)*1099511628211ull;
+        if(resultCount>=offset && resultCount-offset<(size_t)limit) found.push_back(std::move(result));
+        ++resultCount;
     };
-
-    if(requestedModel >= 0 && requestedTxd >= 0) {
-        for(const auto &entry : textureIndex) {
-            if(entry["txd_slot"].get<int>() == requestedTxd) {
-                if(!addResult(requestedModel, entry["txd"].get<std::string>(), entry["texture"].get<std::string>()))
-                    return found;
-            }
+    for(const Json *entryPointer : ordered) {
+        const Json &entry=*entryPointer;
+        int txdSlot=entry["txd_slot"].get<int>();
+        std::string txdName=entry["txd"].get<std::string>();
+        std::string texName=entry["texture"].get<std::string>();
+        if(!txdFilter.empty() && lower(txdName)!=txdFilter) continue;
+        if(!nameFilter.empty() && lower(texName).find(nameFilter)==std::string::npos) continue;
+        auto associations=txdToModels.find(txdSlot);
+        std::vector<int> models=associations==txdToModels.end()?std::vector<int>():associations->second;
+        if(hasModelFilter) {
+            if(std::find(models.begin(),models.end(),modelFilter)==models.end()) continue;
+            models.assign(1,modelFilter);
         }
+        if(models.empty()) models.push_back(-1);
+        std::sort(models.begin(),models.end());
+        models.erase(std::unique(models.begin(),models.end()),models.end());
+        for(int model:models) emit(entry,model);
     }
-
-    for(int m : matchingModels) {
-        auto obj = GetObjectDef(m);
-        if(!obj || obj->m_txdSlot < 0) continue;
-        int slot = obj->m_txdSlot;
-        for(const auto &entry : textureIndex) {
-            if(entry["txd_slot"].get<int>() == slot) {
-                if(!addResult(m, entry["txd"].get<std::string>(), entry["texture"].get<std::string>()))
-                    return found;
-            }
-        }
-    }
-
-    for(const auto &entry : textureIndex) {
-        int slot = entry["txd_slot"].get<int>();
-        std::string txdName = entry["txd"].get<std::string>();
-        std::string texName = entry["texture"].get<std::string>();
-
-        bool match = needle.empty() ||
-                     lower(txdName).find(needle) != std::string::npos ||
-                     lower(texName).find(needle) != std::string::npos;
-        if(!match) continue;
-
-        auto it = txdToModels.find(slot);
-        if(it != txdToModels.end() && !it->second.empty()) {
-            for(int m : it->second) {
-                if(!addResult(m, txdName, texName)) return found;
-            }
-        } else {
-            if(!addResult(-1, txdName, texName)) return found;
-        }
-    }
-
-    return found;
+    const std::string resultHash=hashString(resultFingerprint);
+    if(request.contains("cursor") && cursorResultHash!=resultHash)
+        throw std::runtime_error("stale texture cursor: indexed results changed; restart the search");
+    if(offset>resultCount) throw std::runtime_error("invalid texture cursor offset; restart the search");
+    Json nextCursor = nullptr;
+    size_t end=offset+found.size();
+    if(end<resultCount) nextCursor="v1."+std::to_string(end)+"."+filterHash+"."+resultHash;
+    return {{"textures", found}, {"next_cursor", nextCursor}, {"index_generation", textureIndexGeneration},
+        {"result_count", resultCount}, {"offset", offset},
+        {"scanned_models", textureModelCursor}, {"total_models", NUMOBJECTDEFS},
+        {"indexed_dictionaries", textureCursor}, {"total_dictionaries", discoveredTxdSlots.size()},
+        {"complete", textureDiscoveryComplete && textureCursor==discoveredTxdSlots.size()}};
 }
+
+#include "samp_asset_inspection.inl"
 
 Json assetDiagnostics() {
     Json diagnostics=Json::array();
@@ -534,11 +643,36 @@ int SampPaste(const std::vector<ObjectInst*> &source,bool inPlace,bool cut) {
 
 bool SampActive() { return active; }
 bool SampOwns(const ObjectInst *i) { return identities.count(const_cast<ObjectInst*>(i))!=0; }
+float SampDrawDistance(const ObjectInst *i, float fallback) {
+    if(!i) return fallback;
+    auto identity=identities.find(const_cast<ObjectInst*>(i));
+    if(identity==identities.end()) return fallback;
+    auto record=row(identity->second);
+    if(!record || !record->is_object()) return fallback;
+    auto value=record->find("draw");
+    if(value==record->end() || !value->is_number()) return fallback;
+    float distance=value->get<float>();
+    return std::isfinite(distance) && distance>0.0f ? distance : fallback;
+}
+void SampSetCaptureFilters(int world,int interior) {
+    captureWorldFilter=world;
+    captureInteriorFilter=interior;
+    captureFiltersActive=true;
+}
+void SampClearCaptureFilters() {
+    captureWorldFilter=captureInteriorFilter=-1;
+    captureFiltersActive=false;
+}
+unsigned SampDocumentRevision() { return document.revision; }
 bool SampHidden(const ObjectInst *i) {
     if(!active) return SampOwns(i);
     if(SampOwns(i)) {
         auto r=row(identities[const_cast<ObjectInst*>(i)]); if(!r) return true;
-        for(const char *field:{"world","interior"}) { int filter=document.data["preview"].value(field,-1), value=(*r)[field]; if(filter!=-1 && value!=-1 && filter!=value) return true; }
+        int worldFilter=captureFiltersActive?captureWorldFilter:document.data["preview"].value("world",-1);
+        int interiorFilter=captureFiltersActive?captureInteriorFilter:document.data["preview"].value("interior",-1);
+        int objectWorld=(*r)["world"], objectInterior=(*r)["interior"];
+        if(worldFilter!=-1 && objectWorld!=-1 && worldFilter!=objectWorld) return true;
+        if(interiorFilter!=-1 && objectInterior!=-1 && interiorFilter!=objectInterior) return true;
         return false;
     }
     if(i->m_isAdded) return false;
@@ -609,10 +743,13 @@ std::string SampRequest(const std::string &s) {
         }
         return Json({{"show",showSampWindow},{"revision",document.revision}}).dump();
     }
+    if(op=="model_info") return modelInfo(r).dump();
+    if(op=="texture_preview") return texturePreview(r).dump();
     if(op=="textures") {
         textureIndexing=true;
-        indexTextures(std::max(1,std::min(128,r.value("scan_budget",32))));
-        return Json({{"textures",textures(r.value("query",std::string()),r.value("limit",100))},{"scanned_models",textureModelCursor},{"total_models",NUMOBJECTDEFS},{"indexed_dictionaries",textureCursor},{"total_dictionaries",discoveredTxdSlots.size()},{"complete",textureDiscoveryComplete && textureCursor==discoveredTxdSlots.size()}}).dump();
+        int scanBudget=r.contains("scan_budget")?(int)checkedJsonInteger(r.at("scan_budget"),"texture scan_budget",1,128):32;
+        indexTextures(scanBudget);
+        return textures(r).dump();
     }
     if(op=="replace" && r.value("validate_only",false)) {
         samp::Document staged=document;
@@ -842,7 +979,8 @@ void SampDrawWindow() {
             static size_t lastIndexedCount = 0;
             static size_t lastModelCursor = 0;
             if(std::strcmp(filter, lastFilter) != 0 || textureIndex.size() != lastIndexedCount || textureModelCursor != lastModelCursor) {
-                results=textures(filter,300);
+                auto page=textures(Json{{"query",std::string(filter)},{"limit",300}});
+                results=page.at("textures");
                 std::strncpy(lastFilter, filter, sizeof(lastFilter) - 1);
                 lastFilter[sizeof(lastFilter) - 1] = '\0';
                 lastIndexedCount = textureIndex.size();

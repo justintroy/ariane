@@ -1,0 +1,140 @@
+name: SA-MP validation
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  LIBRW_REF: 15ffa585216a9a7573ecc597b19ce2fde9b935f2
+
+jobs:
+  package-tool-tests:
+    name: Package safety tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Ariane
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run package manifest tests
+        run: python -m unittest discover -s tests/release -p 'test_*.py' -v
+
+  python-agent:
+    name: Python CLI and shared-service tests
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Ariane
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install declared CLI, MCP and wheel build dependencies
+        run: python -m pip install '.[mcp]' build
+      - name: Run agent and SA-MP parity suite
+        run: python -m unittest discover -s tools/agent/tests -v
+      - name: Build and smoke the Python wheel
+        run: python -m build --wheel
+      - name: Verify SA-MP authoring module ships in wheel
+        run: |
+          python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+
+          spec = importlib.util.spec_from_file_location("samp_package", "tools/release/package_samp_windows.py")
+          module = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(module)
+          module.validate_agent_wheel(next(Path("dist").glob("*.whl")))
+          PY
+          arianectl --help
+
+  build-windows:
+    name: Windows D3D9 build and SA-MP core checks
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Ariane
+        uses: actions/checkout@v4
+        with:
+          path: ariane
+      - name: Checkout pinned librw
+        uses: actions/checkout@v4
+        with:
+          repository: Southland-FR/librw
+          ref: ${{ env.LIBRW_REF }}
+          path: ariane-librw
+      - name: Set up MSBuild
+        uses: microsoft/setup-msbuild@v2
+      - name: Install pinned Premake
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "premake5-beta8.zip"
+          $destination = Join-Path $env:RUNNER_TEMP "premake5-beta8"
+          Invoke-WebRequest -Uri "https://github.com/premake/premake-core/releases/download/v5.0.0-beta8/premake-5.0.0-beta8-windows.zip" -OutFile $archive
+          $actualHash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualHash -ne "e64ce2ed8778e0098f63674cca61fe33941b5f0c8d9a4afd651152bdea3758ab") { throw "Premake beta8 archive checksum mismatch" }
+          Expand-Archive -LiteralPath $archive -DestinationPath $destination
+          $premake = Join-Path $destination "premake5.exe"
+          if (-not (Test-Path -LiteralPath $premake)) { throw "Premake beta8 executable missing" }
+          & $premake --version
+          "PREMAKE5=$premake" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Build Windows D3D9 target
+        shell: pwsh
+        run: |
+          & ./ariane/tools/build/build_windows.ps1 -LibrwPath "$env:GITHUB_WORKSPACE/ariane-librw" -PremakePath "$env:PREMAKE5"
+      - name: Run SA-MP parser, document, rotation and export checks
+        shell: pwsh
+        run: |
+          & ./ariane/tools/build/run_samp_core_test.ps1 -LibrwPath "$env:GITHUB_WORKSPACE/ariane-librw"
+
+  build-linux:
+    name: Linux OpenGL build
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Ariane
+        uses: actions/checkout@v4
+        with:
+          path: ariane
+      - name: Checkout pinned librw
+        uses: actions/checkout@v4
+        with:
+          repository: Southland-FR/librw
+          ref: ${{ env.LIBRW_REF }}
+          path: librw
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes build-essential libgl1-mesa-dev libglfw3-dev
+      - name: Install pinned Premake
+        run: |
+          curl --fail --location --silent --show-error \
+            https://github.com/premake/premake-core/releases/download/v5.0.0-beta8/premake-5.0.0-beta8-linux.tar.gz \
+            --output premake5.tar.gz
+          echo "63edd3e7461eebdd45b500a3c7e8ad4e7a67d68f230010f9a97cbb71b4ec59c8  premake5.tar.gz" | sha256sum --check
+          mkdir premake5
+          tar --extract --gzip --file premake5.tar.gz --directory premake5
+          chmod +x premake5/premake5
+          premake5/premake5 --version
+          echo "$GITHUB_WORKSPACE/premake5" >> "$GITHUB_PATH"
+      - name: Generate and build pinned librw
+        working-directory: librw
+        run: |
+          premake5 gmake2 --gfxlib=glfw
+          CXXFLAGS=-std=c++14 make --directory build --jobs 2 config=release_linux-amd64-gl3 librw
+      - name: Generate and build Ariane
+        working-directory: ariane
+        env:
+          LIBRW: ${{ github.workspace }}/librw
+        run: |
+          premake5 gmake2 --channel=master --gfxlib=glfw
+          make --directory build --jobs 2 config=release_linux-amd64-gl3 euryopa
+      - name: Run platform-independent SA-MP document checks
+        working-directory: ariane
+        run: |
+          mkdir --parents local-build/test
+          c++ -std=c++14 -I tools/euryopa tests/samp/core_test.cpp tools/euryopa/samp_document.cpp -o local-build/test/samp-core-test
+          local-build/test/samp-core-test local-build/test/roundtrip

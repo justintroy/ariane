@@ -24,17 +24,30 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from pathlib import PurePosixPath
 import platform
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 PINNED_LIBRW_COMMIT = "15ffa585216a9a7573ecc597b19ce2fde9b935f2"
 TARGET_PUBLISHING_FORK = "https://github.com/justintroy/ariane"
 UPSTREAM_REPO = "https://github.com/Dryxio/ariane"
 ENGINE_PACKAGE_NAME = "ariane.exe"
+ALLOWED_SAMPLE_EXTENSIONS = {".pwn", ".md"}
+ALLOWED_SAMPLE_COMPOUND_EXTENSIONS = (".samp.json", ".plan.json")
+REQUIRED_AGENT_MODULES = {
+    "ariane_agent_tools/samp_authoring.py",
+    "ariane_agent_tools/samp_authoring_apply.py",
+    "ariane_agent_tools/samp_authoring_common.py",
+    "ariane_agent_tools/samp_authoring_groups.py",
+    "ariane_agent_tools/samp_authoring_layout.py",
+    "ariane_agent_tools/samp_authoring_plan.py",
+    "ariane_agent_tools/samp_authoring_review.py",
+}
 
 FORBIDDEN_EXTENSIONS = {
     ".dff", ".txd", ".col", ".ipl", ".ide", ".dat", ".img",
@@ -60,6 +73,45 @@ def check_forbidden_file(path: Path) -> str | None:
             if pat.search(part):
                 return f"Forbidden file pattern match: {pat.pattern}"
     return None
+
+
+def is_allowed_sample(path: Path) -> bool:
+    lower_name = path.name.lower()
+    return path.suffix.lower() in ALLOWED_SAMPLE_EXTENSIONS or any(
+        lower_name.endswith(extension) for extension in ALLOWED_SAMPLE_COMPOUND_EXTENSIONS
+    )
+
+
+def validate_agent_wheel(path: Path) -> None:
+    """Reject non-wheel inputs and unsafe or unrelated wheel contents."""
+    if path.suffix.lower() != ".whl":
+        raise ValueError(f"agent package must be a .whl file: {path}")
+    try:
+        with zipfile.ZipFile(path) as wheel:
+            members = [info.filename for info in wheel.infolist() if not info.is_dir()]
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise ValueError(f"agent wheel is not a readable ZIP file: {path}") from exc
+
+    modules = {name for name in members if name.startswith("ariane_agent_tools/") and name.endswith(".py")}
+    if not modules:
+        raise ValueError("agent wheel does not contain ariane_agent_tools Python modules")
+    missing_modules = REQUIRED_AGENT_MODULES - modules
+    if missing_modules:
+        raise ValueError("agent wheel is missing required SA-MP authoring modules: " + ", ".join(sorted(missing_modules)))
+    violations = []
+    for name in members:
+        normalized = name.replace("\\", "/")
+        portable = PurePosixPath(normalized)
+        if (
+            portable.is_absolute()
+            or re.match(r"^[A-Za-z]:", normalized)
+            or any(part == ".." for part in portable.parts)
+        ):
+            violations.append(name)
+        elif check_forbidden_file(Path(str(portable))):
+            violations.append(name)
+    if violations:
+        raise ValueError("agent wheel contains forbidden files: " + ", ".join(violations[:5]))
 
 
 def check_output_targets(output_dir: Path, package_name: str) -> tuple[Path, Path]:
@@ -187,6 +239,10 @@ def main() -> int:
         help="Path to pre-built Python agent .whl (optional)"
     )
     parser.add_argument(
+        "--build-agent-wheel", action="store_true", default=False,
+        help="Build the Python agent wheel into a temporary directory and include it"
+    )
+    parser.add_argument(
         "--librw-dir", type=Path, default=None,
         help="Path to librw directory for commit validation"
     )
@@ -211,8 +267,27 @@ def main() -> int:
 
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.name) or args.name in {".", ".."}:
         parser.error("--name must be a single safe directory name")
+    if args.wheel and args.build_agent_wheel:
+        parser.error("choose either --wheel or --build-agent-wheel")
     if args.wheel and not args.wheel.is_file():
         parser.error(f"--wheel does not name an existing file: {args.wheel}")
+
+    temporary_wheel = None
+    if args.build_agent_wheel:
+        temporary_wheel = tempfile.TemporaryDirectory(prefix="ariane-agent-wheel-")
+        build = subprocess.run(
+            [sys.executable, "-m", "pip", "wheel", "--no-deps", "--wheel-dir",
+             temporary_wheel.name, str(root)],
+            check=False,
+        )
+        if build.returncode:
+            print(f"\n[ERROR] agent wheel build failed with exit code {build.returncode}", file=sys.stderr)
+            return build.returncode
+        wheels = sorted(Path(temporary_wheel.name).glob("*.whl"))
+        if len(wheels) != 1:
+            print("\n[ERROR] expected exactly one agent wheel from the project build", file=sys.stderr)
+            return 2
+        args.wheel = wheels[0]
 
     is_dry_run = args.dry_run and not args.create_archive
 
@@ -267,6 +342,9 @@ def main() -> int:
     docs_to_bundle = [
         (root / "docs" / "samp-usage.md", "docs/samp-usage.md"),
         (root / "docs" / "samp-build.md", "docs/samp-build.md"),
+        (root / "docs" / "samp-authoring.md", "docs/samp-authoring.md"),
+        (root / "docs" / "samp-assets.md", "docs/samp-assets.md"),
+        (root / "docs" / "samp-verification-20261005.md", "docs/samp-verification-20261005.md"),
         (root / "docs" / "NOTICES-samp.md", "docs/NOTICES-samp.md"),
         (root / "tools" / "euryopa" / "minilzo" / "COPYING", "docs/COPYING-LZO"),
         (root / "tools" / "euryopa" / "minilzo" / "README.LZO", "docs/README.LZO"),
@@ -306,17 +384,21 @@ def main() -> int:
         if src.exists():
             staged_candidates.append((src, dest_rel))
 
-    # Positive allowlist for sample maps: only .pwn, .samp.json, .md
-    ALLOWED_SAMPLE_EXTENSIONS = {".pwn", ".samp.json", ".md"}
+    # Positive allowlist for source maps/projects and declarative authoring plans.
     if samples_dir.exists():
         for f in sorted(samples_dir.rglob("*")):
             if f.is_file():
-                if f.suffix.lower() not in ALLOWED_SAMPLE_EXTENSIONS and not f.name.lower().endswith(".samp.json"):
+                if not is_allowed_sample(f):
                     print(f"\n[ERROR] Stray file in samples directory not in allowlist: {f}", file=sys.stderr)
                     return 2
                 staged_candidates.append((f, f"samples/{f.relative_to(samples_dir).as_posix()}"))
 
     if args.wheel:
+        try:
+            validate_agent_wheel(args.wheel)
+        except ValueError as exc:
+            print(f"\n[ERROR] {exc}", file=sys.stderr)
+            return 2
         staged_candidates.append((args.wheel, f"tools/{args.wheel.name}"))
 
     violations: list[str] = []

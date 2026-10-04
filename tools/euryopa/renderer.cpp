@@ -136,7 +136,7 @@ SetupVisibilitySimple(ObjectInst *inst, float *distout)
 			return VIS_INVISIBLE;
 
 		camdist = TheCamera.distanceTo(inst->m_translation);
-		if(camdist >= obj->GetLargestDrawDist()*TheCamera.m_LODmult)
+		if(camdist >= SampDrawDistance(inst, obj->GetLargestDrawDist())*TheCamera.m_LODmult)
 			return VIS_INVISIBLE;
 
 		if(!gNoTimeCull && obj->m_isTimed && !IsHourInRange(obj->m_timeOn, obj->m_timeOff))
@@ -156,13 +156,13 @@ SetupVisibilitySimple(ObjectInst *inst, float *distout)
 		if(inst->CreateRwObject() == nil)
 			return VIS_INVISIBLE;	// this shouldn't happen
 
-	if(obj->m_type == ObjectDef::ATOMIC){
+	if(obj->m_type == ObjectDef::ATOMIC && !SampOwns(inst)){
 		atm = obj->GetAtomicForDist(camdist);
 		if(atm == nil)	// this shouldn't happen but it does (in xbox III)
 			return VIS_INVISIBLE;
 		instatm = (rw::Atomic*)inst->m_rwObject;
 		if(instatm->geometry != atm->geometry)
-			if(!SampOwns(inst)) instatm->setGeometry(atm->geometry, 0);
+			instatm->setGeometry(atm->geometry, 0);
 	}
 
 	return VIS_VISIBLE;
@@ -190,7 +190,7 @@ SetupVisibilityIII(ObjectInst *inst, float *distout)
 			return VIS_INVISIBLE;
 
 		camdist = TheCamera.distanceTo(inst->m_translation);
-		if(camdist >= obj->GetLargestDrawDist()*TheCamera.m_LODmult)
+		if(camdist >= SampDrawDistance(inst, obj->GetLargestDrawDist())*TheCamera.m_LODmult)
 			return VIS_INVISIBLE;
 		if(camdist < obj->m_minDrawDist*TheCamera.m_LODmult)
 			if(hdobj == nil || hdobj->IsLoaded())
@@ -213,13 +213,13 @@ SetupVisibilityIII(ObjectInst *inst, float *distout)
 		if(inst->CreateRwObject() == nil)
 			return VIS_INVISIBLE;	// this shouldn't happen
 
-	if(obj->m_type == ObjectDef::ATOMIC){
+	if(obj->m_type == ObjectDef::ATOMIC && !SampOwns(inst)){
 		atm = obj->GetAtomicForDist(camdist);
 		if(atm == nil)	// this shouldn't happen but it does (in xbox III)
 			return VIS_INVISIBLE;
 		instatm = (rw::Atomic*)inst->m_rwObject;
 		if(instatm->geometry != atm->geometry)
-			if(!SampOwns(inst)) instatm->setGeometry(atm->geometry, 0);
+			instatm->setGeometry(atm->geometry, 0);
 	}
 
 	return VIS_VISIBLE;
@@ -245,7 +245,7 @@ SetupVisibilitySA(ObjectInst *inst, float camdist)
 		if(obj->m_isHidden)
 			return VIS_INVISIBLE;
 
-		if(camdist >= obj->GetLargestDrawDist()*TheCamera.m_LODmult)
+		if(camdist >= SampDrawDistance(inst, obj->GetLargestDrawDist())*TheCamera.m_LODmult)
 			return VIS_INVISIBLE;
 
 		if(!gNoTimeCull && obj->m_isTimed && !IsHourInRange(obj->m_timeOn, obj->m_timeOff))
@@ -262,13 +262,13 @@ SetupVisibilitySA(ObjectInst *inst, float camdist)
 		if(inst->CreateRwObject() == nil)
 			return VIS_INVISIBLE;	// this shouldn't happen
 
-	if(obj->m_type == ObjectDef::ATOMIC){
+	if(obj->m_type == ObjectDef::ATOMIC && !SampOwns(inst)){
 		atm = obj->GetAtomicForDist(camdist);
 		if(atm == nil)	// this shouldn't happen but it does (in xbox III)
 			return VIS_INVISIBLE;
 		instatm = (rw::Atomic*)inst->m_rwObject;
 		if(instatm->geometry != atm->geometry)
-			if(!SampOwns(inst)) instatm->setGeometry(atm->geometry, 0);
+			instatm->setGeometry(atm->geometry, 0);
 	}
 
 	int ret = VIS_VISIBLE;

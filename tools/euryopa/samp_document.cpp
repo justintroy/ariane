@@ -406,6 +406,8 @@ void Document::restoreSnapshot(const Json &s) {
     data=std::move(next); undo_=std::move(nextUndo); redo_=std::move(nextRedo);
     history=std::move(nextHistory); ++revision;
 }
+#include "samp_plan_patch.inl"
+
 Json Document::request(const Json &r) {
     std::string op=r.at("op");
     if(r.contains("expected_revision") && r.at("expected_revision")!=revision) throw std::runtime_error("stale document revision");
@@ -415,15 +417,7 @@ Json Document::request(const Json &r) {
         return result;
     }
     if(op=="code") return {{"code",ExportPawn(data,r.value("group",std::string()))},{"revision",revision}};
-    if(op=="patch") {
-        Document staged; staged.data=data;
-        for(auto &operation:r.at("operations")) {
-            std::string action=operation.at("op");
-            if(action!="place" && action!="update" && action!="delete" && action!="material" && action!="duplicate" && action!="removal" && action!="import" && action!="preview") throw std::runtime_error("unsupported patch operation");
-            staged.request(operation);
-        }
-        commit(staged.data,"SA-MP patch"); return {{"revision",revision},{"document",data}};
-    }
+    if(op=="patch") return applyPatch(r);
     if(op=="preview_import" || op=="import") {
         Json next=data, diagnostics=Json::array();
         for(auto &f:r.at("files")) {
@@ -473,6 +467,7 @@ Json Document::request(const Json &r) {
     else if(op=="update" || op=="delete" || op=="material" || op=="duplicate") {
         Json next=data; std::string kind=r.value("kind",std::string("objects"));
         if(kind!="objects" && kind!="removals") throw std::runtime_error("invalid record kind");
+        if(op=="material" && kind!="objects") throw std::runtime_error("materials require an object record");
         bool found=false;
         for(size_t i=0;i<next[kind].size();++i) if(next[kind][i]["id"]==r.at("id")) {
             found=true; auto &o=next[kind][i];

@@ -2,12 +2,18 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+import zipfile
 
 
 SCRIPT = Path(__file__).resolve().parents[2] / "tools" / "release" / "package_samp_windows.py"
 SPEC = importlib.util.spec_from_file_location("package_samp_windows", SCRIPT)
 PACKAGE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PACKAGE)
+
+
+def write_agent_modules(archive: zipfile.ZipFile, omitted: set[str] | None = None) -> None:
+    for member in sorted(PACKAGE.REQUIRED_AGENT_MODULES - (omitted or set())):
+        archive.writestr(member, "\n")
 
 
 class PackageOutputSafetyTests(unittest.TestCase):
@@ -64,6 +70,58 @@ class PackageOutputSafetyTests(unittest.TestCase):
     def test_rejects_sensitive_name_in_package_subdirectory(self):
         reason = PACKAGE.check_forbidden_file(Path("samples/runtime-env.json/map.pwn"))
         self.assertIsNotNone(reason)
+
+    def test_sample_allowlist_accepts_authoring_plans(self):
+        self.assertTrue(PACKAGE.is_allowed_sample(Path("interior.plan.json")))
+        self.assertTrue(PACKAGE.is_allowed_sample(Path("map.samp.json")))
+        self.assertFalse(PACKAGE.is_allowed_sample(Path("untracked.json")))
+
+    def test_accepts_agent_wheel_with_python_modules(self):
+        with tempfile.TemporaryDirectory() as temp:
+            wheel = Path(temp) / "ariane_agent-0.1.0-py3-none-any.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                archive.writestr("ariane_agent_tools/arianectl.py", "main = None\n")
+                write_agent_modules(archive)
+            PACKAGE.validate_agent_wheel(wheel)
+
+    def test_rejects_agent_wheel_missing_authoring_submodule(self):
+        with tempfile.TemporaryDirectory() as temp:
+            wheel = Path(temp) / "ariane_agent-0.1.0-py3-none-any.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                write_agent_modules(archive, {"ariane_agent_tools/samp_authoring_plan.py"})
+            with self.assertRaisesRegex(ValueError, "required SA-MP authoring modules"):
+                PACKAGE.validate_agent_wheel(wheel)
+
+    def test_rejects_wheel_with_forbidden_contents(self):
+        with tempfile.TemporaryDirectory() as temp:
+            wheel = Path(temp) / "ariane_agent-0.1.0-py3-none-any.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                write_agent_modules(archive)
+                archive.writestr("ariane_agent_tools/runtime-env.json", "{}\n")
+            with self.assertRaisesRegex(ValueError, "forbidden files"):
+                PACKAGE.validate_agent_wheel(wheel)
+
+    def test_rejects_wheel_path_traversal_members(self):
+        with tempfile.TemporaryDirectory() as temp:
+            wheel = Path(temp) / "ariane_agent-0.1.0-py3-none-any.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                write_agent_modules(archive)
+                archive.writestr("../outside.py", "\n")
+            with self.assertRaisesRegex(ValueError, "forbidden files"):
+                PACKAGE.validate_agent_wheel(wheel)
+
+    def test_rejects_wheel_windows_absolute_members(self):
+        with tempfile.TemporaryDirectory() as temp:
+            wheel = Path(temp) / "ariane_agent-0.1.0-py3-none-any.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                write_agent_modules(archive)
+                archive.writestr("C:/outside.py", "\n")
+            with self.assertRaisesRegex(ValueError, "forbidden files"):
+                PACKAGE.validate_agent_wheel(wheel)
+
+    def test_rejects_nonwheel_agent_package(self):
+        with self.assertRaisesRegex(ValueError, "must be a .whl"):
+            PACKAGE.validate_agent_wheel(Path("agent.zip"))
 
 
 if __name__ == "__main__":

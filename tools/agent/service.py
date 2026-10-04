@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import copy
 import hashlib
+import inspect
 import math
 import os
 from pathlib import Path
@@ -100,6 +101,14 @@ class ScenePatchError(ArianeError):
 	def __init__(self, payload: dict):
 		self.payload = payload
 		super().__init__(str(payload.get("error", "scene patch failed")), payload)
+
+
+def _invoke_samp_adapter(operation, function, *args, **kwargs):
+	try:
+		inspect.signature(function).bind(*args, **kwargs)
+	except TypeError as error:
+		raise ValueError(f"invalid {operation} parameters: {error}") from error
+	return function(*args, **kwargs)
 
 
 class ArianeService:
@@ -1417,6 +1426,52 @@ class ArianeService:
 
 	def samp(self, operation: str, **params) -> dict:
 		"""Use the same engine-owned document service as the SA-MP window."""
+		if operation == "authoring_schema":
+			if __package__:
+				from .samp_authoring import authoring_schema
+			else:
+				from samp_authoring import authoring_schema
+			return _invoke_samp_adapter(operation, authoring_schema, **params)
+		if __package__:
+			from . import samp_authoring
+		else:
+			import samp_authoring
+		if operation == "resolve_plan":
+			if "plan" in params:
+				unexpected = sorted(set(params) - {"plan"})
+				if unexpected:
+					raise ValueError(f"invalid resolve_plan parameters: unexpected field {unexpected[0]!r}")
+				return _invoke_samp_adapter(operation, samp_authoring.resolve_plan, self, params["plan"])
+			return _invoke_samp_adapter(operation, samp_authoring.resolve_plan, self, params)
+		if operation == "apply_plan":
+			container_fields = {key for key in ("resolved_plan", "plan") if key in params}
+			if len(container_fields) > 1:
+				raise ValueError("invalid apply_plan parameters: provide only one of plan or resolved_plan")
+			if container_fields:
+				container = next(iter(container_fields))
+				unexpected = sorted(set(params) - {container, "expected_revision"})
+				if unexpected:
+					raise ValueError(f"invalid apply_plan parameters: unexpected field {unexpected[0]!r}")
+				resolved_plan = params[container]
+			else:
+				resolved_plan = params
+			return _invoke_samp_adapter(operation, samp_authoring.apply_plan, self, resolved_plan,
+									 expected_revision=params.get("expected_revision"))
+		plans = {
+			"bounds": samp_authoring.bounds,
+			"validate_composition": samp_authoring.validate_composition,
+			"capture_views": samp_authoring.capture_views,
+			"group_inspect": samp_authoring.group_inspect,
+			"group_transform": samp_authoring.group_transform,
+			"group_clone": samp_authoring.group_clone,
+			"group_delete": samp_authoring.group_delete,
+			"material_bulk": samp_authoring.material_bulk,
+		}
+		if operation in plans:
+			return _invoke_samp_adapter(operation, plans[operation], self, **params)
+		return self._samp_engine(operation, **params)
+
+	def _samp_engine(self, operation: str, **params) -> dict:
 		return self.engine("samp", [json.dumps({**params, "op": operation})])["samp"]
 
 	def dispatch(self, method: str, params: dict | None = None) -> Any:

@@ -1,5 +1,6 @@
 #include "euryopa.h"
 #include "samp_editor.h"
+#include "agentbridge.h"
 #include "lod_associations.h"
 #include "modloader.h"
 #include "object_categories.h"
@@ -9,6 +10,9 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+#ifdef _WIN32
+#include <Windows.h>
+#endif
 
 bool ReadCdImageEntryByLogicalPath(const char *logicalPath, std::vector<uint8> &data,
                                    char *outSourcePath, size_t outSourcePathSize);
@@ -847,6 +851,29 @@ ObjectInst::DestroyRwObject(void)
 	m_rwObject = nil;
 }
 
+static bool
+consumeSampRendererFailure(const char *point)
+{
+#ifdef _WIN32
+	if(!SampActive() || !AgentBridgeSessionActive())
+		return false;
+	char enabled[8] = {};
+	DWORD enabledLength = GetEnvironmentVariableA("ARIANE_SAMP_VALIDATION", enabled, sizeof(enabled));
+	if(enabledLength == 0 || enabledLength >= sizeof(enabled) || strcmp(enabled, "1") != 0)
+		return false;
+	char requested[64] = {};
+	DWORD requestedLength = GetEnvironmentVariableA("ARIANE_SAMP_FAIL_RENDERER_ALLOC", requested, sizeof(requested));
+	if(requestedLength == 0 || requestedLength >= sizeof(requested) || strcmp(requested, point) != 0)
+		return false;
+	// One-shot so the injected failure cannot affect another object creation.
+	SetEnvironmentVariableA("ARIANE_SAMP_FAIL_RENDERER_ALLOC", nil);
+	return true;
+#else
+	(void)point;
+	return false;
+#endif
+}
+
 void*
 ObjectInst::CreateRwObject(void)
 {
@@ -860,16 +887,28 @@ ObjectInst::CreateRwObject(void)
 	if(obj->m_type == ObjectDef::ATOMIC){
 		if(obj->m_atomics[0] == nil)
 			return nil;
-		atomic = obj->m_atomics[0]->clone();
-		f = rw::Frame::create();
+		atomic = consumeSampRendererFailure("atomic_clone") ? nil : obj->m_atomics[0]->clone();
+		if(atomic == nil)
+			return nil;
+		f = consumeSampRendererFailure("atomic_frame") ? nil : rw::Frame::create();
+		if(f == nil){
+			atomic->destroy();
+			return nil;
+		}
 		atomic->setFrame(f);
 		f->transform(&m_matrix, rw::COMBINEREPLACE);
 		m_rwObject = atomic;
 	}else if(obj->m_type == ObjectDef::CLUMP){
 		if(obj->m_clump == nil)
 			return nil;
-		clump = obj->m_clump->clone();
-		f = clump->getFrame();
+		clump = consumeSampRendererFailure("clump_clone") ? nil : obj->m_clump->clone();
+		if(clump == nil)
+			return nil;
+		f = consumeSampRendererFailure("clump_root") ? nil : clump->getFrame();
+		if(f == nil){
+			clump->destroy();
+			return nil;
+		}
 		f->transform(&m_matrix, rw::COMBINEREPLACE);
 		SetupAnimatedClump(this, clump);
 		m_rwObject = clump;
@@ -1910,9 +1949,61 @@ setObjectPreviewError(char *error, size_t errorSize, const char *message)
 	error[errorSize - 1] = '\0';
 }
 
+struct PreviewMaterialOverride
+{
+	int slot;
+	rw::Texture *texture;
+	rw::RGBA color;
+	bool preserveTexture;
+};
+
+static bool
+clonePreviewGeometryWithMaterial(rw::Atomic *atomic, const PreviewMaterialOverride *override,
+	int *applied, char *error, size_t errorSize)
+{
+	if(atomic == nil || atomic->geometry == nil)
+		return true;
+	rw::Geometry *source = atomic->geometry;
+	if(override->slot >= source->matList.numMaterials)
+		return true;
+	if(source->matList.materials == nil || source->matList.materials[override->slot] == nil){
+		setObjectPreviewError(error, errorSize, "requested material slot has no material");
+		return false;
+	}
+	std::vector<rw::uint8> bytes(source->streamGetSize() + 12);
+	rw::StreamMemory stream;
+	stream.open(bytes.data(), 0, (rw::uint32)bytes.size());
+	if(!source->streamWrite(&stream)){
+		stream.close();
+		setObjectPreviewError(error, errorSize, "material preview geometry clone failed");
+		return false;
+	}
+	stream.seek(0, 0);
+	if(!rw::findChunk(&stream, rw::ID_GEOMETRY, nil, nil)){
+		stream.close();
+		setObjectPreviewError(error, errorSize, "material preview geometry stream is invalid");
+		return false;
+	}
+	rw::Geometry *geometry = rw::Geometry::streamRead(&stream);
+	stream.close();
+	if(geometry == nil){
+		setObjectPreviewError(error, errorSize, "material preview geometry clone failed");
+		return false;
+	}
+	atomic->setGeometry(geometry, 0);
+	geometry->destroy();
+	auto material = atomic->geometry->matList.materials[override->slot];
+	if(!override->preserveTexture)
+		material->setTexture(override->texture);
+	material->color = override->color;
+	(*applied)++;
+	return true;
+}
+
 static bool
 renderObjectToRaster(int objectId, rw::Raster *colorRaster, rw::Raster *depthRaster,
-	int size, float angle, char *error = nil, size_t errorSize = 0, bool pngOrientation = false)
+	int size, float angle, char *error = nil, size_t errorSize = 0, bool pngOrientation = false,
+	const PreviewMaterialOverride *materialOverride = nil)
 {
 	ObjectDef *obj = GetObjectDef(objectId);
 	if(obj == nil){
@@ -1930,6 +2021,27 @@ renderObjectToRaster(int objectId, rw::Raster *colorRaster, rw::Raster *depthRas
 			obj->m_atomics[0] != nil ? 1 : 0, obj->m_clump != nil ? 1 : 0);
 		setObjectPreviewError(error, errorSize, detail);
 		return false;
+	}
+	if(materialOverride){
+		int applied = 0;
+		bool ok = true;
+		if(atm)
+			ok = clonePreviewGeometryWithMaterial(atm, materialOverride, &applied, error, errorSize);
+		else if(clump){
+			FORLIST(lnk, clump->atomics){
+				if(!clonePreviewGeometryWithMaterial(rw::Atomic::fromClump(lnk), materialOverride,
+					&applied, error, errorSize)){
+					ok = false;
+					break;
+				}
+			}
+		}
+		if(!ok || applied == 0){
+			if(ok) setObjectPreviewError(error, errorSize, "requested material slot is absent from the model");
+			if(atm){ atm->getFrame()->destroy(); atm->destroy(); }
+			if(clump) clump->destroy();
+			return false;
+		}
 	}
 
 	float radius = 5.0f;
@@ -1955,6 +2067,15 @@ renderObjectToRaster(int objectId, rw::Raster *colorRaster, rw::Raster *depthRas
 		return false;
 	}
 	rw::Frame *camFrame = cam->getFrame();
+	rw::Matrix oldCameraMatrix = camFrame->matrix;
+	rw::Raster *oldColorRaster = cam->frameBuffer;
+	rw::Raster *oldDepthRaster = cam->zBuffer;
+	rw::V2d oldViewWindow = cam->viewWindow;
+	rw::V2d oldViewOffset = cam->viewOffset;
+	float oldNear = cam->nearPlane, oldFar = cam->farPlane, oldFog = cam->fogPlane;
+	int oldFogEnabled = rw::GetRenderState(rw::FOGENABLE);
+	int oldZTest = rw::GetRenderState(rw::ZTESTENABLE);
+	int oldZWrite = rw::GetRenderState(rw::ZWRITEENABLE);
 
 	cam->frameBuffer = colorRaster;
 	cam->zBuffer = depthRaster;
@@ -1987,6 +2108,18 @@ renderObjectToRaster(int objectId, rw::Raster *colorRaster, rw::Raster *depthRas
 	}
 
 	cam->endUpdate();
+	cam->frameBuffer = oldColorRaster;
+	cam->zBuffer = oldDepthRaster;
+	cam->setNearPlane(oldNear);
+	cam->setFarPlane(oldFar);
+	cam->fogPlane = oldFog;
+	cam->setViewWindow(&oldViewWindow);
+	cam->setViewOffset(&oldViewOffset);
+	camFrame->matrix = oldCameraMatrix;
+	camFrame->updateObjects();
+	rw::SetRenderState(rw::FOGENABLE, oldFogEnabled);
+	rw::SetRenderState(rw::ZTESTENABLE, oldZTest);
+	rw::SetRenderState(rw::ZWRITEENABLE, oldZWrite);
 
 	if(atm){ atm->getFrame()->destroy(); atm->destroy(); }
 	if(clump){ clump->destroy(); }
@@ -2040,6 +2173,75 @@ CaptureObjectPreviewPng(int objectId, const char *path, int size, float angle,
 		setObjectPreviewError(error, errorSize, "");
 	color->destroy();
 	depth->destroy();
+	return ok;
+}
+
+bool
+CaptureObjectMaterialPreviewPng(int objectId, int slot, const char *txdName,
+	const char *textureName, uint32 color, const char *path, int size, float angle,
+	char *error, size_t errorSize, bool preserveTexture)
+{
+	if(GetObjectDef(objectId) == nil || slot < 0 || path == nil || path[0] == '\0' ||
+	   (!preserveTexture && (txdName == nil || txdName[0] == '\0' ||
+	   textureName == nil || textureName[0] == '\0'))){
+		setObjectPreviewError(error, errorSize, "invalid material preview request");
+		return false;
+	}
+	struct TxdPushGuard { TxdPushGuard(){ TxdPush(); } ~TxdPushGuard(){ TxdPop(); } } txdGuard;
+	rw::Texture *texture = nil;
+	if(preserveTexture){
+		ObjectDef *object = GetObjectDef(objectId);
+		if(object && object->m_txdSlot >= 0){
+			if(!IsTxdLoaded(object->m_txdSlot))
+				LoadTxd(object->m_txdSlot);
+			TxdMakeCurrent(object->m_txdSlot);
+		}
+	}else{
+		int txdSlot = FindTxdSlot(txdName);
+		if(txdSlot < 0){
+			setObjectPreviewError(error, errorSize, "material preview TXD is unavailable");
+			return false;
+		}
+		if(!IsTxdLoaded(txdSlot))
+			LoadTxd(txdSlot);
+		TxdDef *txd = GetTxdDef(txdSlot);
+		texture = txd && txd->txd ? txd->txd->find(textureName) : nil;
+		if(texture == nil || texture->raster == nil){
+			setObjectPreviewError(error, errorSize, "material preview texture is unavailable");
+			return false;
+		}
+	}
+	size = max(96, min(size, 1024));
+	rw::Raster *colorRaster = rw::Raster::create(size, size, 24,
+		rw::Raster::C888|rw::Raster::CAMERATEXTURE);
+	rw::Raster *depthRaster = rw::Raster::create(size, size, 0, rw::Raster::ZBUFFER);
+	if(colorRaster == nil || depthRaster == nil){
+		setObjectPreviewError(error, errorSize,
+			colorRaster == nil ? "preview color raster creation failed" : "preview depth raster creation failed");
+		if(colorRaster) colorRaster->destroy();
+		if(depthRaster) depthRaster->destroy();
+		return false;
+	}
+	PreviewMaterialOverride override;
+	override.slot = slot;
+	override.texture = texture;
+	override.color = {(uint8)(color >> 16),(uint8)(color >> 8),(uint8)color,(uint8)(color >> 24)};
+	override.preserveTexture = preserveTexture;
+	bool ok = renderObjectToRaster(objectId, colorRaster, depthRaster, size, angle,
+		error, errorSize, true, &override);
+	if(ok){
+		rw::Image *image = colorRaster->toImage();
+		ok = image != nil;
+		if(image){
+			rw::writePNG(image, path);
+			image->destroy();
+		}else
+			setObjectPreviewError(error, errorSize, "preview framebuffer readback failed");
+	}
+	if(ok)
+		setObjectPreviewError(error, errorSize, "");
+	colorRaster->destroy();
+	depthRaster->destroy();
 	return ok;
 }
 

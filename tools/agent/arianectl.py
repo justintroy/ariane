@@ -33,7 +33,7 @@ def emit(payload: object) -> None:
 
 def add_engine_commands(sub: argparse._SubParsersAction) -> None:
 	samp = sub.add_parser("samp", help="SA-MP document operations")
-	samp.add_argument("operation", choices=("inspect", "code", "preview", "preview_import", "import", "update", "delete", "duplicate", "material", "removal", "textures", "open", "save", "export", "clear", "undo", "redo", "patch", "place", "replace", "window"))
+	samp.add_argument("operation", choices=("inspect", "code", "preview", "preview_import", "import", "update", "delete", "duplicate", "material", "removal", "textures", "model_info", "texture_preview", "authoring_schema", "resolve_plan", "apply_plan", "bounds", "validate_composition", "capture_views", "group_inspect", "group_transform", "group_clone", "group_delete", "material_bulk", "open", "save", "export", "clear", "undo", "redo", "patch", "place", "replace", "window"))
 	samp.add_argument("--params", default="{}", help="JSON parameters")
 	samp.add_argument("--file", type=Path, help="Read JSON parameters from a file")
 	sub.add_parser("ping")
@@ -308,8 +308,16 @@ def main(argv: list[str] | None = None) -> int:
 		if args.command == "samp":
 			params = json.loads(args.file.read_text(encoding="utf-8") if args.file else args.params)
 			if not isinstance(params, dict): raise ValueError("parameters must be a JSON object")
-			params["op"] = args.operation
-			payload = ArianeClient(args.socket, args.timeout).command("samp", json.dumps(params))
+			adapter_ops = {"authoring_schema", "resolve_plan", "apply_plan", "bounds",
+			               "validate_composition", "capture_views", "group_inspect",
+			               "group_transform", "group_clone", "group_delete", "material_bulk"}
+			if args.operation in adapter_ops:
+				service = ArianeService(args.socket, args.db, args.timeout,
+				                        args.discovery_dir, args.state_dir)
+				payload = service.samp(args.operation, **params)
+			else:
+				params["op"] = args.operation
+				payload = ArianeClient(args.socket, args.timeout).command("samp", json.dumps(params))
 		elif args.command in {"call", "survey", "environment"}:
 			service = ArianeService(args.socket, args.db, args.timeout, args.discovery_dir, args.state_dir)
 			if args.command == "call":

@@ -64,6 +64,8 @@ static bool gAgentBridgeInitialized;
 static bool gAgentBridgeEnabled;
 static bool gAgentCapturePending;
 static bool gAgentCaptureIncludeGui;
+static bool gAgentCaptureSampFilters;
+static uint32 gAgentCaptureDocumentRevision;
 static char gAgentBridgeDirectory[1024];
 static char gAgentSocketPath[1024];
 static char gAgentSceneLogicalPath[256];
@@ -1054,7 +1056,7 @@ handleRequest(const std::vector<std::string> &lines)
             // Read-only requests and writes are classified before dispatch.
             auto request = samp::Json::parse(lines[2]);
             std::string op=request.at("op");
-            bool read=op=="inspect" || op=="code" || op=="preview_import" || op=="textures" || op=="window" ||
+            bool read=op=="inspect" || op=="code" || op=="preview_import" || op=="textures" || op=="model_info" || op=="texture_preview" || op=="window" ||
                 (op=="replace" && request.value("validate_only",false));
             bool write=op=="save" || op=="export";
             if(!read && !write && !requireAgentSession(requestId)) return;
@@ -2339,6 +2341,8 @@ handleRequest(const std::vector<std::string> &lines)
 		gAgentCapturePath[sizeof(gAgentCapturePath) - 1] = '\0';
 		gAgentCaptureLabel = lines.size() > 3 ? lines[3] : "current";
 		gAgentCaptureIncludeGui = lines.size() > 4 && lines[4] == "1";
+		gAgentCaptureSampFilters = false;
+		SampClearCaptureFilters();
 		gAgentCapturePose = currentCameraPose();
 		gAgentCaptureCameraRevision = gAgentCameraRevision;
 		gAgentCaptureRestore = false;
@@ -2380,6 +2384,21 @@ handleRequest(const std::vector<std::string> &lines)
 		strncpy(gAgentCapturePath, lines[2].c_str(), sizeof(gAgentCapturePath) - 1);
 		gAgentCapturePath[sizeof(gAgentCapturePath) - 1] = '\0';
 		gAgentCaptureLabel = lines[3];
+		int sampWorld = -1, sampInterior = -1, sampRevision = 0;
+		const bool sampFilters = lines.size() > 15;
+		if(sampFilters && (lines.size() != 18 ||
+		   !parseInt(lines[15], &sampWorld) || sampWorld < -1 ||
+		   !parseInt(lines[16], &sampInterior) || sampInterior < -1 ||
+		   !parseInt(lines[17], &sampRevision) || sampRevision < 0 ||
+		   (uint32)sampRevision != SampDocumentRevision())){
+			writeError(requestId, "invalid or stale SA-MP capture filters/revision");
+			return;
+		}
+		gAgentCaptureIncludeGui = false;
+		gAgentCaptureSampFilters = sampFilters;
+		gAgentCaptureDocumentRevision = SampDocumentRevision();
+		SampClearCaptureFilters();
+		if(sampFilters) SampSetCaptureFilters(sampWorld, sampInterior);
 		gAgentCaptureRestorePose = currentCameraPose();
 		gAgentCaptureRestore = true;
 		applyCameraPose(requested);
@@ -2427,10 +2446,11 @@ AgentBridgeUpdate(void)
 static void
 captureAgentFramebuffer(void)
 {
-	if(!gAgentCapturePending || Scene.camera == nil || Scene.camera->frameBuffer == nil)
+	if(!gAgentCapturePending)
 		return;
-	rw::Image *image = Scene.camera->frameBuffer->toImage();
+	rw::Image *image = Scene.camera != nil && Scene.camera->frameBuffer != nil ? Scene.camera->frameBuffer->toImage() : nil;
 	bool captured = image != nil;
+	const bool documentUnchanged = !gAgentCaptureSampFilters || SampDocumentRevision() == gAgentCaptureDocumentRevision;
 	if(image != nil){
 		rw::writePNG(image, gAgentCapturePath);
 		image->destroy();
@@ -2446,18 +2466,22 @@ captureAgentFramebuffer(void)
 			restored = true;
 		}
 	}
+	SampClearCaptureFilters();
 	std::string body = std::string("\"path\":\"") + jsonEscape(gAgentCapturePath) +
 		"\",\"label\":\"" + jsonEscape(gAgentCaptureLabel.c_str()) +
 		"\",\"actual_pose\":" + cameraPoseJson(gAgentCapturePose) +
 		",\"capture_camera_revision\":" + std::to_string(gAgentCaptureCameraRevision) +
 		",\"camera_revision\":" + std::to_string(gAgentCameraRevision) +
-		",\"restored\":" + (restored ? "true" : "false");
-	if(captured)
+		",\"restored\":" + (restored ? "true" : "false") +
+		",\"document_revision\":" + std::to_string(SampDocumentRevision());
+	if(captured && documentUnchanged)
 		writeResponse(gAgentPendingRequestId, true, body);
 	else
 		writeResponse(gAgentPendingRequestId, false,
-			std::string("\"error\":\"could not read the camera framebuffer\",") + body);
+			std::string("\"error\":\"") + (documentUnchanged ? "could not read the camera framebuffer" : "SA-MP document changed during capture") + "\"," + body);
 	gAgentCapturePending = false;
+	gAgentCaptureSampFilters = false;
+	gAgentCaptureIncludeGui = false;
 	gAgentCaptureRestore = false;
 	gAgentCaptureLabel.clear();
 	gAgentPendingRequestId.clear();

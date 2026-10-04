@@ -8,14 +8,15 @@ This specification is self-contained and idempotent for development across fresh
 
 ## Status
 
-- Updated 2026-10-04. B1 and B2 remain complete; B0 and B3–B8 remain incomplete. Current work is B3/B4 verification and B8 package preparation.
-- Current Windows x64 D3D9 build passes. Binary SHA-256: `35301F0824E3A0AE42E60E4F9E8EE8073CC5CD9DDD3C79E07A73B782D159159B`.
+- Updated 2026-10-05. Three GPT-6 Luna agents at Max are implementing and validating the remaining automation work; the user excludes computer use for this continuation. B1 and B2 remain complete. Tracked Windows build/core scripts are tested; B9 asset inspection, atomic symbolic plans and composition adapters now exist in development source. UI, device reset, internal librw clone allocation, target-client comparison, non-Windows execution and clean-install/publication gates remain explicit. See [the current verification report](docs/samp-verification-20261005.md) for exact evidence; do not infer overall batch completion from implementation.
+- Latest Windows x64 D3D9 build and automated renderer tests pass. Binary SHA-256: `4962FB441F3EE73D09F2C636A120F0DCDA00124A240C4A97E2E988F0A01C9957`. Core: 132 document checks and 10 orientation checks. October 5 renderer/removal/clipboard and asset-preview evidence is in the current report; earlier UI evidence retains its original binary/date scope.
 - Fixed stale missing-model UI warnings: the banner derives from current document records instead of persisting in the operation-status message. Live captures verify model 29999 warns, Undo clears it, and rollback clears it. Structured diagnostics also pass Undo/Redo checks. Complete snapshot restored; all 217 baseline world-file hashes unchanged.
-- Current Python agent suite: 97 tests, one Unix-only transport skip. The 21-operation CLI/shared-service forwarding coverage passes. SA-MP MCP was dropped by the user on 2026-10-03; unrelated MCP support remains.
-- October 3 evidence remains applicable to unchanged core/rotation code: 105 document checks, 10 orientation checks, generated Pawn fixtures and four sample compilations. Live B6 session/checkpoint/ownership tests and 300 atomic recreation plus 150 model replacement/delete/Undo cycles passed on the recorded October 3 binary.
-- Direct native UI interactions, clumps/device reset, target-client render parity, non-Windows compilation and clean-install verification remain open. Native computer APIs are unavailable here; screenshots and IPC checks do not close interaction gates.
-- User-reported September 28 manual checks passed large clipboard/import, preview invalidation, row selection versus checks, Cancel/safe Enter, bulk deletion/Undo and scrolling. Do not repeat them without relevant changes. Stale confirmation and concurrent UI/session mutation remain open.
-- Existing uncommitted work is preserved. Branch `codex/samp-support`, base HEAD `1a99d14b24b24b7cac238f2afbea3571b92518fc`. No release is published. User previously authorized publication to `justintroy/ariane`, but acceptance gates remain unmet; never push to Dryxio upstream.
+- Current Python agent suite: 122 tests, one Unix-only transport skip; all other tests pass. Focused authoring/shared-service parity coverage: 30 tests. SA-MP MCP was dropped by the user on 2026-10-03; unrelated MCP support remains.
+- October 3 evidence remains applicable to unchanged core/rotation code: 105 document checks, 10 orientation checks, generated Pawn fixtures and four sample compilations. The October 4 D3D9 B3 probe passed 300 atomic recreations, 150 model-3120 clump recreations and 150 replacement/delete/Undo cycles. Materials and renderer caches survived repeated address reuse; all compared non-frame resource counters balanced.
+- Native UI checks on the latest test binary verified placement, row selection versus checks, Duplicate/Undo, texture search/material application/Undo, file-dialog Cancel, bulk-delete Cancel/safe Enter, and stale-delete rejection after a concurrent document change. The stale dialog showed a changed-document warning and disabled Delete.
+- Selected vanilla `mall_laW` (instance 8816/model 6048) by double-clicking its Selection row. IPC confirmed SA-MP mode active; Tools showed Gizmo enabled and Translate selected. The user's screenshot shows the same mall selected with a translation gizmo visible. The user separately confirms that with an SA-MP document enabled, gizmo transforms, clipboard copy and Delete operations are disabled. Record those as user-reported guard passes; the screenshot confirms visual gizmo presence, not whether dragging is enabled in that state. The earlier off-center no-gizmo observation is not a suppression result. Cut/Paste behavior and a transform drag were not separately confirmed. Rollback left the scratch document empty and inactive; all 217 baseline world-file hashes match. D3D9 reset, allocation-failure injection, client render parity, non-Windows compilation and clean-install verification remain open.
+- User-reported September 28 manual checks remain historical: large clipboard/import, preview invalidation, row selection versus checks, Cancel/safe Enter, bulk deletion/Undo and scrolling passed. Do not repeat without relevant changes.
+- Development checkpoint `22dcc42f685566f8313c79299e84ba33ece6e81e` is pushed to `justintroy/ariane`; the remote branch and local HEAD match. No release is published. Follow-up B3 handoff/spec edits are not committed; never push to Dryxio upstream.
 - Exact evidence, runtime state, package results and next actions are recorded in the newest `docs/samp-handoff.md` entry. Older batch evidence below retains its original scope and date.
 
 ## Repository and references
@@ -25,11 +26,11 @@ This specification is self-contained and idempotent for development across fresh
 - Intended fork: https://github.com/justintroy/ariane
 - Branch: `codex/samp-support`.
 - Base tag: `v1.40.9-agent-alpha.1`.
-- Current HEAD/base: `1a99d14b24b24b7cac238f2afbea3571b92518fc`.
+- Continuation base checkpoint: `22dcc42f685566f8313c79299e84ba33ece6e81e`; use Git history for the latest source commit.
 - Pinned librw: `15ffa585216a9a7573ecc597b19ce2fde9b935f2`, local sibling `ariane-librw`.
 - Behavior reference: https://github.com/openmultiplayer/open.mp ; verify native signatures and client behavior against primary references when implementing remaining details.
 - Workspace guidance: `../Roleplay-Project-v2/AGENTS.md`, `../Roleplay-Project-v2/docs/spec-driven-development.md`, and `../Roleplay-Project-v2/tools/gta3dai/AGENTS.md`.
-- Verified user fork access on 2026-10-04: `fork` points to `git@github.com:justintroy/ariane.git`. Existing `origin` remains Dryxio for upstream fetching; never push there. `remote.pushDefault` and `branch.codex/samp-support.pushRemote` both select `fork`. No push has been performed.
+- Verified user fork access on 2026-10-04: `fork` points to `git@github.com:justintroy/ariane.git`. Existing `origin` remains Dryxio for upstream fetching; never push there. `remote.pushDefault` and `branch.codex/samp-support.pushRemote` both select `fork`. The recorded October 4 checkpoint is pushed; later evidence belongs to its own source checkpoint.
 
 ## Scope and non-goals
 
@@ -103,17 +104,25 @@ Require existing agent sessions for mutations. Session commit accepts changes; i
 
 Do not let generic agent scene commands bypass SA-MP ownership or invalidate rollback. Verify switching scene/session mode, generic place/transform/delete, and simultaneous UI changes while an agent session exists.
 
+### R8: Agent-authored maps and interiors
+
+Agents must be able to discover locally available objects and textures, inspect their rendered appearance and dimensions, compose an interior or exterior map, apply instance materials, inspect the result from useful views, revise it, and save/export it through the CLI. Adopt the scriptable build/inspect/render/iterate workflow that motivates blender-cli; do not add a Blender dependency or execute arbitrary agent code inside the editor.
+
+Here, custom maps/interiors mean compositions of stock GTA and locally supplied SA-MP objects with texture, tint and material-text overrides. New DFF/TXD geometry, custom-model downloads/registration, mesh editing and arbitrary UV editing remain outside this batch. Preserve world/interior/player/stream/draw/area/priority metadata. No operation may route SA-MP records through generic IPL scene mutations.
+
+Existing discovery, asset previews, camera/capture, document patches and material setters are foundations, not missing features to rebuild. Add the SA-MP composition and inspection adapters described in B9, with CLI/shared-service parity, stable IDs, atomic mutation and explicit persistence.
+
 ## Progress and batch acceptance
 
 Each batch is independently resumable. Start by inspecting existing code and evidence; do not recreate working features. Mark a batch complete only after its acceptance checks pass. Keep failed/unavailable checks explicit.
 
-### B0 — Baseline, fork and reproducible workspace (PARTIAL)
+### B0 — Baseline, fork and reproducible workspace (COMPLETE)
 
 - [x] Separate checkout and requested branch/base.
 - [x] Pinned librw checkout.
 - [x] Local Windows toolchain builds the editor.
 - [x] Verify fork exists; configure upstream/user remotes without losing existing settings. SSH access to `justintroy/ariane` verified; `fork` is the default push destination, with existing `origin` retained.
-- [ ] Convert necessary local build knowledge into portable tracked instructions/scripts.
+- [x] Convert necessary local build knowledge into portable tracked instructions/scripts. `tools/build/build_windows.ps1`, `run_samp_core_test.ps1` and the usage guide record dependency/toolchain detection and explicit path overrides; both scripts run successfully locally. Validation CI is tracked without changing the pinned dependency.
 - Acceptance: base/dependency SHAs recorded; clean reproducible build procedure; no game assets committed; publishing targets only `justintroy/ariane`.
 - Handoff: exact toolchain commands, paths, remote status and dependency pins.
 
@@ -150,9 +159,14 @@ Each batch is independently resumable. Start by inspecting existing code and evi
 - [x] Audit cut/copy/paste routing, duplication, model changes, material clearing and geometry cache invalidation in code. Clipboard copies now snapshot document rows so a rebuilt source pointer cannot become a paste source.
 - [x] Test quaternion equivalence with mixed-axis rotations and singularities (10 checks).
 - [x] Guard SA-MP transform and delete paths against vanilla instances in code; a representative loaded LA IPL hash was unchanged after live smoke.
-- [ ] Exercise cut/copy/paste and vanilla selection/transform/delete through the actual UI; check slot replacement after resource recreation.
-- [ ] Run repeated recreate/material cycles with renderer resource accounting; no-leak acceptance remains unverified.
-- Atomic-only recreation evidence: `tests/samp/renderer_validation.inl`, enabled by `ARIANE_SAMP_VALIDATION=1` and a scratch session, checks source material signatures, independent material pointers, restored overrides, and allocation counts. Live text, tint replacement and Undo passed 300 cycles. Remaining lifecycle and device-reset checks remain open.
+- [x] Verify slot isolation and restoration through atomic resource recreation. The current-build live probe passed 300 recreation cycles across two instances and text/tint/Undo states, with balanced allocation counts.
+- [x] Run document-driven atomic model replacement, deletion and Undo with resource accounting. The current-build probe passed 150 cycles with stable instance identities, released deleted resources and balanced counts.
+- [x] Exercise a real clump model through destroy/recreate and immediate renderer-address reuse. Model 3120 passed 150 live cycles across import, tint and Undo checkpoints; cloned atomics retained topology and independent geometry/materials, source signatures were restored, and non-frame resource counters balanced. Renderer addresses were reused in 242/300 atomic and 23/150 clump cycles; the material cache cleared on destruction and rebuilt after each clone. The pinned librw frame counter rises by 150 per 50-cycle run because `Frame::destroyHierarchy` frees frames without decrementing that counter.
+- [x] Exercise native UI placement, row/check behavior, Duplicate/Undo, texture search/material/Undo, file-dialog cancellation, bulk-delete cancellation and stale-delete rejection after concurrent document mutation; see the 2026-10-04 UI handoff.
+- [x] User confirms vanilla gizmo transforms, clipboard copy and Delete are disabled while an SA-MP document is enabled; recorded as a user-reported guard pass. The screenshot separately shows the gizmo visible, but does not establish whether dragging is enabled in that state.
+- [ ] Confirm viewport Cut/Paste behavior while an SA-MP document is enabled; the user confirmation covered clipboard copy and Delete, not Cut/Paste.
+- [ ] Exercise D3D9 resize/device reset and internal renderer allocation/clone failures. October 5 live probes pass caller-side `atomic_clone`, `atomic_frame`, `clump_clone` and `clump_root` null-return injection with cleanup and recovery. Real device reset and allocations inside pinned librw's `Clump::clone` remain unverified.
+- Renderer recreation evidence: `tests/samp/renderer_validation.inl`, enabled by `ARIANE_SAMP_VALIDATION=1` and a scratch session, checks atomic material isolation/restoration and clump topology/ownership. Current ignored outputs are `local-build/b3-renderer-followup-results-r2-20261004.json` and `local-build/b3-clump-renderer-results-r3-20261004.json`.
 - Acceptance: ownership isolation and restoration across undo/reload/recreation; no world file changes; no leaked or stale renderer resources.
 - Handoff: screenshot/test evidence, ownership lifecycle and remaining renderer differences.
 - Evidence: Windows x64 build; 103 core checks; 10 orientation checks; live RED/BLUE shared-model screenshot, duplicate/model-change/material-clear/undo/rollback smoke; `LAe2.ipl` SHA-256 unchanged. These checks do not establish full acceptance.
@@ -163,8 +177,11 @@ Each batch is independently resumable. Start by inspecting existing code and evi
 
 - [x] Incremental texture indexing, thumbnail UI, tint/slot controls and GDI text rasterization exist.
 - [x] Structured `samp inspect` asset diagnostics exist for missing models, TXDs, textures and font preview substitution/unavailability.
-- [ ] Verify model searches across shared TXDs, indexing completion and missing-asset diagnostics through API as well as UI.
-- [ ] Test ARGB/alpha, supported sizes, bold/fonts, multiline, inline colors and alignment.
+- [x] API texture search covers shared TXDs: full index completed across 40,000 models and 2,704 dictionaries; models 19379 and 19353 returned matching 34-texture results from all_walls.
+- [x] API inspect reported model_missing, txd_missing, texture_missing and font_substituted. Missing model/material parameters survived .samp.json save/open.
+- [x] API document matrix preserved texture/text ARGB values, every material size from 10 through 140, font names and sizes, both bold values, multiline and inline-color text, and all three alignments. A live Ariane capture shows multiline inline colors.
+- [ ] Verify indexing completion, shared-TXD search, missing-asset diagnostics and selected-instance application through direct UI interaction.
+- [ ] Verify rendered alpha blending and the full font/size/bold/alignment matrix; API value checks and one live preview do not establish pixel parity.
 - [ ] Compare representative text/texture renders with an actual SA-MP/open.mp client.
 - Acceptance: controls change only the selected instance; parameters survive missing assets and reload; documented client comparison results.
 - Handoff: reproducible visual fixtures and explicit differences/unavailable checks.
@@ -173,7 +190,7 @@ Each batch is independently resumable. Start by inspecting existing code and evi
 
 - [x] All five tabs, editable removals and spherical preview exist.
 - [x] Files & Objects includes per-object checks, select/deselect all, delete checked and delete all; bulk deletes preserve non-object document state and use one undoable replace action. Windows build and 103 core checks passed; direct UI interaction remains unverified.
-- [ ] Test boundary/vertical/wildcard/LOD/overlap cases and undo restoration.
+- [x] Test boundary/vertical/wildcard/LOD/overlap cases and undo restoration. October 5 direct renderer probe passes 12 checks at each of three document checkpoints; all 217 world-file hashes match.
 - [ ] Route preview filters and every UI mutation through the shared service.
 - [ ] Verify reopen behavior, clipboard code copy, multi-file preview/apply and per-group export UI.
 - [ ] Perform UI layout and interaction checks; optional GUI-inclusive capture is built but untested.
@@ -194,27 +211,72 @@ Each batch is independently resumable. Start by inspecting existing code and evi
 - Acceptance: existing agent tests plus SA-MP parity/transaction/checkpoint tests pass; no session bypass; save/export explicitly separated.
 - Handoff: exact automation usage, request schemas, session lifecycle and test evidence.
 
-### B7 — Regression, compatibility and client verification (TODO)
+### B7 — Regression, compatibility and client verification (PARTIAL)
 
 - [ ] Complete integration with existing vanilla editor selection, gizmos, shortcuts and shared viewport workflow while preserving separate SA-MP document ownership and world-save guards. This is required before release; schedule after SA-MP UX gates.
-- [ ] Run complete parser/core suite and compile exported fixtures with Pawn and streamer includes.
-- [ ] Run existing agent suite and new SA-MP integration suite after final changes.
+- [x] Run complete parser/core suite and compile exported fixtures with Pawn and streamer includes. October 5: 132 core/10 orientation checks, four samples and two round-trip fixtures pass.
+- [x] Run existing agent suite and new SA-MP integration suite after final changes. October 5: 122 tests, one Unix-only skip; all others pass. Both generated authoring exports also compile.
 - [ ] Build existing non-Windows targets; add/update CI without changing the pinned dependency.
 - [ ] Run complete rendering/removal matrix and compare representative client renders.
-- [ ] Check world-file hashes before/after tests, resource recreation and clean launch.
+- [x] Check world-file hashes before/after tests, resource recreation and clean launch. All 217 baseline files match in the latest renderer run.
 - Acceptance: evidence includes commands, revisions, toolchain, pass/fail/skip counts and screenshots; unavailable checks are release limitations, not passes.
 - Handoff: verification report and release risks, with remaining failures assigned to a batch.
 
-### B8 — Documentation, package and publication (TODO)
+### B8 — Documentation, package and publication (PARTIAL)
 
+- [ ] Include the B9 authoring workflow and its verification artifacts in final documentation/package; B9 is required before delivery.
 - [ ] Finalize root Ariane `AGENTS.md` and `docs/samp-usage.md` with tested setup/UI/CLI examples and supported Pawn subset.
-- [ ] Keep navigation links in Roleplay root and gta3dai `AGENTS.md`; label experimental until release acceptance passes.
-- [ ] Add small sample maps exercising all requested calls, with no game assets.
+- [x] Keep navigation links in Roleplay root and gta3dai `AGENTS.md`; label experimental until release acceptance passes.
+- [x] Add small sample maps exercising all requested calls, with no game assets. Existing Pawn fixtures plus both declarative plans are tracked sources.
 - [ ] Package Windows x64 editor, necessary fonts/runtime/tool scripts, dependency notices, setup guide and verification report.
 - [ ] Verify package from a clean local installation and record SHA-256.
 - [ ] Commit reviewed changes, push `codex/samp-support` to the user's fork and publish the Windows build.
 - Acceptance: working download/package and branch URLs, complete usage instructions, no secrets/game assets, precise remaining visual limitations. Do not claim release completion if publication or required verification remains blocked.
 - Handoff: published commit, artifact URL/hash and final known limitations.
+
+### B9 — Agent map/interior authoring through the CLI (IMPLEMENTED; ACCEPTANCE PARTIAL)
+
+**Outcome:** An agent can build and refine a complete SA-MP interior and exterior map using available objects and material textures, without manual UI editing or generic scene ownership workarounds. Visual quality requires inspection and revision; a successful export alone is insufficient.
+
+**Dependencies and order:** Reuse B1/B2 document semantics and B6 session safeguards. Build on B3 material ownership and B4 local indexing/diagnostics; their remaining acceptance gates still apply. Implement the bounded units below in order, then rerun B7 and include the workflow in B8. Do not mark any earlier batch complete from B9 evidence alone.
+
+**Code audit baseline (2026-10-05):** `arianectl samp` exposes 21 document/editor operations, including `place`, `material`, `duplicate`, `patch`, `textures`, `preview`, `inspect`, `save` and `export`. Generic `assets`, `discovery` and `catalogue.*` provide model search, previews and candidate boards. Camera commands and captures already exist. `samp textures` returns names/model associations and indexing progress, but no CLI texture image export, pagination or slot geometry inspection. `asset_detail` provides collision bounds when present; that is not a complete visual geometry/material-slot contract. Generic scene groups, relative placement, support snapping, bounds and composition validation use generic scene identities; their mutations reject active SA-MP editing. Raw document patches can already construct maps, but provide no symbolic references for newly placed records or reusable SA-MP layout workflow. These are audit findings, not newly validated runtime defects.
+
+#### B9.1 — Discover and inspect usable assets/materials (COMPLETE)
+
+- [x] Reuse existing asset/discovery/catalogue commands. Expose source provenance, installed/defined/renderable status and indexing coverage for locally supplied SA-MP model IDs as well as stock GTA models. Missing semantic descriptions must not hide usable assets or imply exhaustive semantic coverage.
+- [x] Add read-only `samp model_info` for a model or document object ID: model name/TXD, visual local bounds, collision bounds separately, origin/axes, material slots and their original texture references. Identify atomic/clump submeshes sharing each slot. Report absent collision, unavailable geometry and unsupported slot mapping explicitly; do not invent dimensions or claim that all slots 0–15 exist on every model.
+- [x] Extend `samp textures` with deterministic pagination and structured model/TXD/name filters while preserving existing query behavior and incremental progress. Results identify valid material source model/TXD/texture tuples, dimensions and availability. Reject stale cursors if the indexed result set changes.
+- [x] Add read-only `samp texture_preview` to export one texture or a labeled candidate board as PNG under an explicit output directory, showing alpha over a checkerboard. Reuse model preview/contact-sheet facilities for objects and provide material-on-object comparison views using isolated scratch state. Preserve the current document, history, session and camera after previews; surface unavailable assets instead of downloading them.
+- [x] Cache thumbnails only in ignored local directories. Preserve legal material sentinel values supported by the existing API; do not confuse a material source model ID with the destination object model.
+
+#### B9.2 — Resolve layouts and apply one atomic document edit (COMPLETE)
+
+- [x] Add `samp resolve_plan` and `samp apply_plan` through CLI and shared Python service. A declarative plan contains document revision, existing stable IDs, new object keys, explicit model/creation fields, groups, transforms, material palettes and overrides. Resolution is read-only and returns expanded operations, computed bounds, diagnostics and a key-to-record reference plan. Application returns the actual key-to-stable-ID mapping after one successful commit.
+- [x] Support references to newly placed objects in the same plan so materials, duplicates and relative placement need no intermediate ID polling. Compile to the shared C++ document transaction; install no partial state. Do not allocate durable IDs or consume `next_id` during resolution. Require an active session and matching `expected_revision` at application; reuse the B2 uncertain-response retry protocol.
+- [x] Add bounded declarative layout primitives for rows, rectangular grids and perimeter walls with explicit openings. Supply spacing/count, origin, orientation, floor elevation and separately specified support objects; reject inferred support/snap fields. Use true model origins and rotated bounds; support mixed-axis rotations with the existing quaternion conversion. Reject non-finite values, excessive expansion, unresolved references/cycles and unsupported geometry operations before mutation.
+- [x] Add SA-MP group inspect/transform/clone/delete and bulk material application to selected stable IDs/groups. Preserve existing source/export groups; distinguish layout membership from source groups if separate membership is needed, with a documented backward-compatible schema strategy. Transform around an explicit pivot, clone with new IDs and independent materials, preserve creation metadata, and make each action one undo entry.
+- [x] Named material palettes resolve to validated texture/text/tint settings for explicit slots. Slot targeting is inspectable and never silently applies one material to every surface. Repeated props and module clones retain overrides without mutating shared models.
+
+#### B9.3 — Inspect, validate and revise the composed map (COMPLETE)
+
+- [x] Add read-only `samp bounds`, `samp validate_composition` and `samp capture_views`, accepting stable IDs/groups and explicit world/interior preview filters. Use SA-MP document records; never derive an empty map from generic `scene_bounds` or generic group state.
+- [x] Report visual and collision bounds separately; flag unresolved assets/material slots, near-coplanar overlapping surfaces, unsupported placements, possible wall/floor gaps and specified entrance/walkway clearances. Make overlap/gap checks configurable so intentional intersections remain possible. Geometry heuristics are warnings, not proof of collision correctness or client walkability.
+- [x] Frame actual transformed SA-MP bounds for overview, plan and interior eye-level captures, with explicit pose overrides for occluded rooms. Record camera, document revision, filters and asset diagnostics alongside images. Preserve camera/environment state unless the caller explicitly requests a change; stale revisions reject mixed-state reviews.
+- [x] Reuse existing raycast/camera/capture facilities only after auditing that they observe SA-MP instances correctly. Add an SA-MP adapter where generic facilities omit them. Make unsupported collision/raycast results explicit rather than reporting successful clearance.
+- [x] Document machine-readable request/response schemas and runnable JSON plans with a discovery, preview, resolve, apply, capture, revise, commit, save and export recipe. Commands named above are proposed B9 APIs until implemented and tested; publish capability/schema discovery for their supported fields and limits.
+
+#### B9.4 — End-to-end acceptance and delivery evidence
+
+- [x] Build two tracked, asset-free sample plans: a furnished multi-room interior with openings, repeated modules, texture palettes and a material-text sign; an exterior entrance/courtyard with props and an explicit building removal. Include at least two differently textured instances of the same model and nondefault world/interior metadata. Local renders/assets remain ignored.
+- [ ] Run both recipes entirely through CLI: discover/render candidates, inspect slots/bounds, resolve/apply layout, capture useful views, revise one layout and one material, commit, save `.samp.json`, export Pawn, reopen and compare semantic state. Record model choices and inspect renders for seams, openings, scale and palette coherence; document unresolved visual issues. Do not substitute autogenerated “beauty” scores for visual review.
+- [x] Tests cover CLI/shared-service forwarding, new-object references, rotated/pivot layouts, material ownership, metadata retention, invalid slots/assets, stale revisions, expansion limits, failed plans, retry recovery, one-action Undo/Redo, full rollback and save/reload. Read-only inspection/previews must not alter document/history or generic scene/world state. Validate missing-collision behavior and indexing pagination.
+- [ ] Compile both exports with the Pawn compiler and streamer includes. Compare representative texture/text/slot results and entrance/collision behavior in a controlled SA-MP/open.mp client; record renderer/client differences and unavailable checks. Reuse B4/B7 evidence where unchanged behavior applies.
+- [ ] Record exact commands, schemas, revisions, counts, captures, test results and unchanged world-file hashes. Update usage, handoff and package content. Do not bundle local game assets or mark B9 complete until both CLI recipes and required validation pass.
+
+**Implementation map:** Extend `tools/agent/arianectl.py` and `service.py`; split SA-MP planning, layout and review helpers into focused modules rather than expanding generic scene methods. Add engine inspection/preview adapters in focused files beside `samp_editor.cpp`; keep mutation/history/export in `samp_document.*`. Add focused `tools/agent/tests/`, `tests/samp/` and sample plan fixtures. Update build inputs when adding C++ files. Any persistence change must preserve B2 schema/version guarantees.
+
+**Stopping point:** B9 asset inspection, symbolic plans, layouts/groups/palettes, composition diagnostics and revision-pinned captures are implemented. Core/Python/live asset checks and both semantic CLI recipes pass. The final Windows build and all 33 metadata/visibility probes pass; corrected captures show both sample compositions. A focused material-text sign review remains in progress. Client rendering/collision, real device reset, internal librw allocation failure, non-Windows execution and clean-install/publication gates remain open. See the current verification report and newest handoff for exact commands and artifact scope.
 
 ## Idempotent session protocol
 

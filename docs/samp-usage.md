@@ -2,11 +2,29 @@
 
 This guide describes the current interface, not a verified release. See [the specification](../SPEC-samp-support.md) for acceptance criteria and [the handoff](samp-handoff.md) for known gaps. Stable Ariane does not supply these commands; use this Agent Alpha-based fork.
 
-Testing update (2026-10-03): current Windows build, core/rotation/agent suites and live session/lifecycle/texture/window/filter checks pass. Direct UI interaction, native dialogs, clumps/device reset, non-Windows builds and target-client rendering remain unverified. See newest [handoff evidence](samp-handoff.md). Packaging execution produced an internal candidate only; no release is published.
+Authoring update (2026-10-05): the development source adds model/material-slot inspection, paginated texture images, atomic layout plans, SA-MP groups/palettes and composition review captures. See [authoring schemas and recipes](samp-authoring.md) and the [automated verification report](samp-verification-20261005.md). B9 acceptance remains partial until its recorded recipe and client gates pass. `samp authoring_schema` describes implemented fields and limits.
 
-October 4 update: the current Windows build and 97-test agent suite pass (one Unix-only skip). Missing-model warnings now follow current document state; live captures verified that Undo and rollback clear the warning while preserving the document. This does not replace direct UI interaction testing.
+B4 API follow-up (2026-10-04): texture indexing completed across 40,000 models and 2,704 dictionaries. Model 19379 and another model sharing all_walls returned matching texture sets. API diagnostics covered missing model, TXD, texture and font substitution; material settings survived .samp.json save/open. Ariane preview captured multiline text with inline colors. Shared-TXD UI behavior, full alpha/render checks and comparison with an actual SA-MP/open.mp client remain unverified.
 
-The latest source releases render resources for deleted objects and reuses runtime instances when changing models. Missing-model records remain editable document data. The user reported all eight supplied manual workflow checks passed on 2026-09-28. On 2026-10-03, 300 atomic recreation cycles and 150 replacement/delete/Undo cycles passed; clumps, device reset and stale-confirmation rejection remain pending. B6 live API session-safety checks pass. During an active scratch agent session, project saving and Pawn export are intentionally blocked until commit or rollback.
+Testing update (2026-10-04): native UI on the latest Windows test binary verified placement, row/check behavior, Duplicate/Undo, texture search/material/Undo, native file-dialog cancellation, bulk-delete cancellation, and stale-confirmation rejection after a concurrent document change. The user's screenshot shows selected `mall_laW` with its gizmo visible. The user separately confirms gizmo transforms, clipboard copy and vanilla Delete are disabled while an SA-MP document is enabled; these are user-reported guard passes. The screenshot establishes visual gizmo presence, not whether dragging is enabled in that state. Cut/Paste behavior was not separately confirmed. Clump recreation checks pass. D3D9 reset, allocation-failure injection, non-Windows builds, target-client rendering and clean-install validation remain open. See newest [handoff evidence](samp-handoff.md). Packaging execution produced an internal candidate only; no release is published.
+
+October 4 update: the Windows build and 97-test agent suite pass (one Unix-only skip). Missing-model warnings now follow current document state; live captures verified that Undo and rollback clear the warning while preserving the document. User-reported manual checks confirm gizmo transforms, clipboard copy and vanilla Delete are blocked in active SA-MP mode. Cut/Paste behavior remains unconfirmed.
+
+The latest source releases render resources for deleted objects and reuses runtime instances when changing models. Missing-model records remain editable document data. The user reported all eight supplied manual workflow checks passed on 2026-09-28. On 2026-10-03, 300 atomic recreation cycles and 150 replacement/delete/Undo cycles passed; on October 4, 150 clump recreation cycles and stale-confirmation UI rejection passed. Device reset and allocation-failure injection remain open. B6 live API session-safety checks pass. During an active scratch agent session, project saving and Pawn export are intentionally blocked until commit or rollback.
+
+## Build and automated checks
+
+Use a classic San Andreas installation with locally supplied SA-MP assets. Asset availability is reported by inspection; the build does not download game data. Install Visual Studio C++ Build Tools, Python 3.10 or newer and Premake 5. Keep a checkout of the pinned librw commit `15ffa585216a9a7573ecc597b19ce2fde9b935f2`. From this checkout:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build/build_windows.ps1 -LibrwPath C:/path/to/librw -PremakePath C:/path/to/premake5.exe
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build/run_samp_core_test.ps1 -LibrwPath C:/path/to/librw
+python -m pip install '.[mcp]'
+python -m unittest discover -s tools/agent/tests -v
+python -m unittest discover -s tests/release -p 'test_*.py' -v
+```
+
+The build script discovers MSVC through `vswhere`, verifies the dependency pin and generates the Windows D3D9 projects. The core runner builds the document tests and links the rotation tests against librw. The agent tests need a compiler initialized in the process environment for compiler-dependent checks; a skip is reported when it is absent. The optional MCP dependency supports upstream tests and unrelated tools; SA-MP operations use CLI/shared-service routes. Tested local toolchain and exact results are in the verification report. Linux OpenGL CI is tracked separately from local Windows results.
 
 ## Editor workflow
 
@@ -44,7 +62,7 @@ Named checkpoints include the complete SA-MP document snapshot, undo/redo/histor
 
 Do not switch agent scenes during an active session. Commit or rollback first. While SA-MP editing is active, use `samp place`, `samp update`, `samp delete` and other SA-MP document operations. Generic agent `place`, `batch`, `transform`, `delete`, `clear`, suppression and terrain-fit commands reject to prevent bypassing stable IDs, revisions and rollback ownership.
 
-`samp inspect` also returns `asset_diagnostics`. Each entry has a stable `code`, `severity`, record `kind` and `id`, plus relevant model/material fields. Current codes are `model_missing`, `txd_missing`, `txd_unavailable`, `texture_missing`, `font_unavailable`, `font_substituted`, and non-Windows `text_preview_unsupported`. Missing assets do not remove document records. Live inspection verified `model_missing` against an unavailable model; other diagnostics still need the rendering matrix.
+`samp inspect` also returns `asset_diagnostics`. Each entry has a stable `code`, `severity`, record `kind` and `id`, plus relevant model/material fields. Current codes are `model_missing`, `txd_missing`, `txd_unavailable`, `texture_missing`, `font_unavailable`, `font_substituted`, and non-Windows `text_preview_unsupported`. Missing assets do not remove document records. B4 API checks confirmed missing-model, missing-TXD, missing-texture and font-substitution diagnostics, and project save/open retained their records. UI warning behavior and pixel rendering still need direct verification.
 
 `import-request.json`:
 
@@ -64,7 +82,7 @@ The importer reads source text only. Supported calls: `CreateObject`, `CreateDyn
 
 The parser reports unsupported preprocessor directives, runtime control flow, unresolved expressions and object references. Map calls require `;`. Preview diagnostics before applying supported records. It does not execute callbacks, conditional preprocessor branches, macros beyond simple numeric `#define`, runtime variables or custom map functions. Source files remain untouched. Function blocks scope object references and `const` values. Generated code includes source group comments. Streamer defaults and dynamic material-text argument order follow [streamer.inc](https://github.com/samp-incognito/samp-streamer-plugin/blob/master/streamer.inc); native object/material signatures follow [open.mp CreateObject](https://open.mp/docs/scripting/functions/CreateObject), [SetObjectMaterial](https://open.mp/docs/scripting/functions/SetObjectMaterial) and [SetObjectMaterialText](https://open.mp/docs/scripting/functions/SetObjectMaterialText).
 
-Current operations: `inspect`, `code`, `preview`, `preview_import`, `import`, `place`, `update`, `delete`, `duplicate`, `material`, `removal`, `textures`, `open`, `save`, `export`, `clear`, `undo`, `redo`, `patch`, `replace`, `window`.
+Current engine operations: `inspect`, `code`, `preview`, `preview_import`, `import`, `place`, `update`, `delete`, `duplicate`, `material`, `removal`, `textures`, `model_info`, `texture_preview`, `open`, `save`, `export`, `clear`, `undo`, `redo`, `patch`, `replace`, `window`. Authoring adapters add `authoring_schema`, `resolve_plan`, `apply_plan`, `bounds`, `validate_composition`, `capture_views`, `group_inspect`, `group_transform`, `group_clone`, `group_delete` and `material_bulk`. See [the authoring contract](samp-authoring.md) and [asset schemas](samp-assets.md) for exact fields and limits.
 
 - `preview`: `world`, `interior` filter fields; mutates document preview filter state (requires active session when mutating document preview settings).
 - `window`: optional `show` boolean; queries or toggles SA-MP editor ImGui window visibility (UI presentation state only; non-document-mutating).
@@ -72,12 +90,12 @@ Current operations: `inspect`, `code`, `preview`, `preview_import`, `import`, `p
 - `update`: `id`, `changes`; optional `kind: "removals"` for removal records.
 - `material`: `id`, `slot`, `material`; `null` removes an override. Texture material fields are `type`, `model`, `txd`, `texture`, `color`. Text fields are `type`, `text`, `size`, `font`, `font_size`, `bold`, `foreground`, `background`, `align`.
 - `removal`: `removal` containing model, position, radius and optional group.
-- `patch`: `operations` array; stages supported operations and commits atomically. Retry receipt semantics remain under review.
+- `patch`: `operations` array with at most 4,096 entries; stages supported operations and commits atomically. Optional `groups` adds source groups within that same transaction. A `place`, `duplicate` or `removal` operation can declare a unique `key` of 1–128 bytes. Later operations can target its ID with `{"ref":"key"}`. The response includes `references`, mapping keys to the allocated stable IDs. Forward references and duplicate keys reject the entire patch. Optional `label` names the single history action. Successful retries with the same `expected_revision` reject as stale; inspect and compare state after an uncertain response.
 - `inspect`: optional `include_history: true`.
 - History retains at most 64 actions, including undo and redo. Each entry has `label`, `revision`, full generated `code` snapshot and `affected` records with before/after values. Snapshots are historical document states, not executable patches.
 - `code`/`export`: optional `group`.
 
-SA-MP MCP support has been dropped in favor of CLI (`arianectl samp <operation>`) and shared Python service dispatch (`samp.<operation>`). Both forward to the shared C++ document service under identical validation and session rules. Forwarding tests cover 21 operations and pass in the 97-test run (one Windows skip). Current live B6 tests verify session/checkpoint behavior.
+SA-MP MCP support has been dropped in favor of CLI (`arianectl samp <operation>`) and shared Python service dispatch (`samp.<operation>`). Both use the shared C++ document service under identical validation and session rules. Authoring adapters resolve their read-only requests in Python and install changes through one engine transaction. October 5 authoring/parity coverage passes 30 focused tests; the full agent suite runs 122 tests with one Unix-only transport skip. Current live B6 tests verify session/checkpoint behavior.
 
 ## Before release
 

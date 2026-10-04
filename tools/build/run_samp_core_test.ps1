@@ -9,7 +9,7 @@
     Supports -CheckOnly for non-destructive environment inspection.
 
 .PARAMETER OutDir
-    Directory for intermediate compilation and test artifacts. Default: build\test.
+    Directory for intermediate compilation and test artifacts. Default: local-build\test.
 
 .PARAMETER SkipRotation
     Skip the rotation equivalence test.
@@ -21,7 +21,7 @@
 [CmdletBinding()]
 param(
     [string]$LibrwPath = "",
-    [string]$OutDir = "build\test",
+    [string]$OutDir = "local-build\test",
     [switch]$SkipRotation,
     [switch]$CheckOnly
 )
@@ -34,7 +34,7 @@ $TargetOutDir = Join-Path $RepoRoot $OutDir
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host " Ariane SA-MP Core Test Runner (Windows x64)" -ForegroundColor Cyan
-Write-Host " [NOTE] In-development delivery preparation draft (untested)" -ForegroundColor DarkGray
+Write-Host " Development validation; release acceptance tracked in SPEC-samp-support.md" -ForegroundColor DarkGray
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "Repository root: $RepoRoot"
 Write-Host "Output directory: $TargetOutDir"

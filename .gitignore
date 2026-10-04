@@ -23,5 +23,6 @@ dist/
 
 .agent-test/
 /release/
+/build/
 .build-librw/
 /local-build/

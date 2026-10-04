@@ -62,7 +62,7 @@ $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host " Ariane SA-MP Windows Build Preparation Tool" -ForegroundColor Cyan
-Write-Host " [NOTE] In-development delivery preparation draft (untested)" -ForegroundColor DarkGray
+Write-Host " Development build; release acceptance tracked in SPEC-samp-support.md" -ForegroundColor DarkGray
 Write-Host "==========================================================" -ForegroundColor Cyan
 Write-Host "Repository root: $RepoRoot"
 

@@ -46,7 +46,7 @@ stock LoadNativeSampleMap()
         OBJECT_MATERIAL_SIZE_256x128,
         "Arial",
         24,
-        1,
+        true,
         0xFFFFFFFF,
         0xCC002244,
         OBJECT_MATERIAL_TEXT_ALIGN_CENTER
@@ -68,7 +68,7 @@ stock LoadNativeSampleMap()
         OBJECT_MATERIAL_SIZE_128x64,
         "Courier New",
         18,
-        0,
+        false,
         0xFF00FF00,
         0xFF000000,
         OBJECT_MATERIAL_TEXT_ALIGN_LEFT

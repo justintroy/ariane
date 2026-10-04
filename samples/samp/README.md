@@ -54,3 +54,13 @@ pawncc native_map.pwn "-ipath/to/qawno/include" -onative_map.amx
 ## Executed validation (2026-10-03)
 
 All four Pawn files compile. Multi-group files contain minimal `main()` entrypoints and otherwise remain include-style helpers. Native sample emits two bool-tag warnings; all files emit the existing legacy `a_samp` wrapper warning. Import previews report unsupported `Remove*Buildings` helper definitions/calls. The static importer does not execute helpers; inspect diagnostics before accepting supported records. Sample project opens with three objects.
+
+On 2026-10-05 all four samples and both generated round-trip fixtures compiled again. The native sample now uses boolean arguments for text boldness, removing its two bool-tag warnings. The local legacy `a_samp` include warning remains for all six compilations.
+
+## Declarative authoring plans
+
+`interior-perimeter.plan.json` creates 40 objects: three floor panels, three room perimeters with explicit openings, repeated furniture, two wall palettes and a material-text sign. It uses world 42/interior 1 near Z 1000. `exterior-yard.plan.json` creates 24 objects plus one removal: floor panels, perimeter openings, planters, bollards, a cafe set and an entrance sign. It uses world 43/interior 0 near Z 1500. Both are asset-free schema-1 templates; replace `expected_revision: 0` with the current inspected document revision before resolution.
+
+The exterior removal targets stock model 6048 at its original LA location, separately from the elevated demonstration courtyard. Adapt both placement and removal to an intended site before server use. These plans do not prove player access or collision. Model 19379 floor panels are rotated visual geometry with unavailable collision bounds in the tested local asset installation.
+
+Follow [the authoring workflow](../../docs/samp-authoring.md) for discovery, isolated previews, atomic application, review, revisions, persistence and Pawn export. Generated renders, projects, Pawn wrappers and compiler output remain in ignored local directories. The [verification report](../../docs/samp-verification-20261005.md) records the exact tested scope and outstanding client checks.
