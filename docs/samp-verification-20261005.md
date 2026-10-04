@@ -58,6 +58,18 @@ python local-build/final-world-hashes.py
 
 These drivers and their generated artifacts are ignored local evidence; the portable user recipe is in `docs/samp-authoring.md`. Every engine action in the recipe driver is an `arianectl.py` subprocess; exact CLI arguments and structured results are retained in `cli-records.json`. Final portable-binary recipe results: interior 40 objects/0 removals/43 patch operations, capture revisions 683 then 685; exterior 24 objects/1 removal/27 patch operations, revisions 691 then 693. Save/reload equality and one-action Undo/Redo pass. Offline saved-project checks confirm the sign slots are text materials at font sizes 20 and 24. Both exports compile with only the legacy `a_samp` warning. The driver restores the complete initial document/history snapshot and active state; final session is inactive with zero live instances, objects and removals at revision 696. Independent final hashing reports all 217 world files unchanged, none missing.
 
+## Development package receipt
+
+The audited local candidate is `local-build/package-check-20261005.zip`, 2,208,906 bytes, SHA-256 `633E579CDF0A53A3673714D2D86869B01C5A9695112DF433B65DDA98E30C029F`. It packages the tested Windows engine, final Python CLI wheel, fonts, notices, samples, asset/authoring/usage/build guides and this verification report from clean source checkpoint `a57e7623472cc22cadfbd76ad42e7f9ef56c128e`. This receipt was added after archive creation; the archive's verification report is the preceding snapshot with the same engine/recipe/CI evidence.
+
+Creation used the command below. A rerun must use a fresh name; the tool refuses to overwrite existing staging directories or ZIPs.
+
+```powershell
+python tools/release/package_samp_windows.py --engine bin/win-amd64-d3d9/Release/ariane.exe --wheel local-build/20261005-agent-wheel-final4/ariane_agent-0.1.0a1-py3-none-any.whl --librw-dir ../ariane-librw --output local-build --name package-check-20261005 --create-archive --strict --allow-unverified
+```
+
+Strict manifest validation passed for 22 source files. ZIP CRC passed; 25 entries have no duplicate/unsafe/forbidden paths; all 24 listed `SHA256SUMS` records match. Embedded engine/wheel hashes match this report. `BUILD_INFO.json` records the source commit, matching dependency pin, development-candidate status, and no bundled game assets or credentials. Its legacy `working_tree_dirty` field is the string `"false"`; actual Git status was clean. Generated package files and the reproducible audit helper remain ignored local evidence. No release publication or clean game-install verification occurred.
+
 ## Acceptance limits
 
 No direct UI checks are claimed for this continuation. Existing historical UI evidence remains limited to the unchanged behavior and binaries recorded in the handoff.

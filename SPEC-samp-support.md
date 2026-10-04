@@ -224,11 +224,11 @@ Each batch is independently resumable. Start by inspecting existing code and evi
 
 ### B8 — Documentation, package and publication (PARTIAL)
 
-- [ ] Include the B9 authoring workflow and its verification artifacts in final documentation/package; B9 is required before delivery.
+- [x] Include the B9 authoring workflow and its verification artifacts in documentation/package. The audited development candidate includes the authoring/assets guides, both plans, CLI wheel and verification report; verified release delivery still requires B9.4 client acceptance.
 - [x] Finalize root Ariane `AGENTS.md` and `docs/samp-usage.md` with tested setup/UI/CLI examples and supported Pawn subset. Authoring and asset guides include live schemas, runnable recipes, tested limits and explicit remaining acceptance gates.
 - [x] Keep navigation links in Roleplay root and gta3dai `AGENTS.md`; label experimental until release acceptance passes.
 - [x] Add small sample maps exercising all requested calls, with no game assets. Existing Pawn fixtures plus both declarative plans are tracked sources.
-- [ ] Package Windows x64 editor, necessary fonts/runtime/tool scripts, dependency notices, setup guide and verification report.
+- [x] Package Windows x64 editor, necessary fonts/runtime/tool scripts, dependency notices, setup guide and verification report. Development candidate `local-build/package-check-20261005.zip` passes CRC, all 24 checksums and forbidden-content audit (25 entries); clean-install and publication remain unchecked below.
 - [ ] Verify package from a clean local installation and record SHA-256.
 - [ ] Commit reviewed changes, push `codex/samp-support` to the user's fork and publish the Windows build.
 - Acceptance: working download/package and branch URLs, complete usage instructions, no secrets/game assets, precise remaining visual limitations. Do not claim release completion if publication or required verification remains blocked.
